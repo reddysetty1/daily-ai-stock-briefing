@@ -1,7 +1,8 @@
 """
 Daily Pre-Market Stock Briefing — Telegram Bot
-Fetches live market data via yfinance, generates a briefing with Gemini,
-and sends it over Telegram. Runs headlessly via GitHub Actions cron every weekday.
+Two modes:
+  premarket  → 6:30 AM PST, quick snapshot before market opens
+  analysis   → 8:00 AM PST, deeper analysis after first hour of trading
 """
 
 import os
@@ -26,6 +27,7 @@ GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
 GEMINI_MODEL       = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+MODE               = os.getenv("BRIEFING_MODE", "premarket")   # premarket | analysis
 
 TELEGRAM_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
@@ -43,11 +45,14 @@ log = logging.getLogger(__name__)
 TICKERS = {
     "SPY":  "S&P 500 ETF",
     "QQQ":  "Nasdaq ETF",
+    "DIA":  "Dow Jones ETF",
     "NVDA": "NVIDIA",
     "AAPL": "Apple",
     "TSLA": "Tesla",
     "MSFT": "Microsoft",
     "AMZN": "Amazon",
+    "META": "Meta",
+    "GOOGL": "Google",
 }
 
 def fetch_market_data() -> str:
@@ -72,16 +77,15 @@ def fetch_market_data() -> str:
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """\
-You are a pre-market stock analyst and news briefer producing a concise daily morning message.
-Use the live market data provided for prices. Use your knowledge for analyst calls, news, and outlook.
-Total message must be readable in under 5 minutes — keep every line tight and scannable.
+PREMARKET_SYSTEM = """\
+You are a pre-market stock analyst producing a concise morning briefing sent BEFORE market open.
+Use the live market data provided for prices. Use your knowledge for analyst calls and news.
+Total message must be readable in under 5 minutes. Keep every line tight and scannable.
 Do NOT use markdown, asterisks, or bold. Plain text only. Use the emoji prefix shown exactly.
-No filler words. Be direct and specific.
 
 Output EXACTLY this format — fill in the brackets, keep all section labels as-is, no extra lines:
 
-📊 [Day, Month Date Year] | Pre-Market Briefing
+📊 [Day, Month Date Year] | Pre-Market Briefing 🌅
 
 — MARKET SNAPSHOT —
 📈 SPY: $[price] [up/down] [%] | QQQ: $[price] [up/down] [%]
@@ -89,13 +93,13 @@ Output EXACTLY this format — fill in the brackets, keep all section labels as-
 🌍 Mood: [one word] — [max 10-word reason]
 
 — TODAY'S OUTLOOK —
-[2-3 sentences on what to expect for the trading day: sector rotation, catalysts, key levels]
+[2-3 sentences on what to expect: sector rotation, key levels, catalysts to watch]
 
 — TOP ANALYST MOVES —
-🟢 BUY: [Company] ($[TICKER]) | Now: $[current price] | Target: $[price] by [Month Year] | [one-line reason]
-🟢 BUY: [Company] ($[TICKER]) | Now: $[current price] | Target: $[price] by [Month Year] | [one-line reason]
-🔴 SELL: [Company] ($[TICKER]) | Now: $[current price] | Downside: $[price] by [Month Year] | [one-line reason]
-🔴 SELL: [Company] ($[TICKER]) | Now: $[current price] | Downside: $[price] by [Month Year] | [one-line reason]
+🟢 BUY: [Company] ($[TICKER]) | Now: $[price] | Target: $[price] by [Month Year] | [one-line reason]
+🟢 BUY: [Company] ($[TICKER]) | Now: $[price] | Target: $[price] by [Month Year] | [one-line reason]
+🔴 SELL: [Company] ($[TICKER]) | Now: $[price] | Downside: $[price] by [Month Year] | [one-line reason]
+🔴 SELL: [Company] ($[TICKER]) | Now: $[price] | Downside: $[price] by [Month Year] | [one-line reason]
 
 — HOT NEWS —
 🇺🇸 [Trump/US policy headline — one sentence]
@@ -104,12 +108,53 @@ Output EXACTLY this format — fill in the brackets, keep all section labels as-
 
 ⚠️ Risk of the Day: [one sentence, max 15 words]"""
 
-def build_user_prompt(market_data: str) -> str:
+ANALYSIS_SYSTEM = """\
+You are a senior market analyst producing a mid-morning deep-dive sent 1.5 hours AFTER market open.
+Use the live market data provided for current prices. Use your knowledge for news, analyst research, and trends.
+Total message must be readable in under 5 minutes. Every line must be sharp and actionable.
+Do NOT use markdown, asterisks, or bold. Plain text only. Use the emoji prefix shown exactly.
+
+Output EXACTLY this format — fill in the brackets, keep all section labels as-is, no extra lines:
+
+📊 [Day, Month Date Year] | Market Analysis 📈
+
+— EARLY SESSION SNAPSHOT —
+📈 SPY: $[price] [up/down] [%] | QQQ: $[price] [up/down] [%] | DIA: $[price] [up/down] [%]
+📉 NVDA: $[price] [up/down] [%] | TSLA: $[price] [up/down] [%] | META: $[price] [up/down] [%]
+🌍 Session Tone: [one word] — [max 10-word reason]
+
+— FIRST HOUR RECAP —
+[3-4 sentences: what moved, what surprised, early volume leaders, any gaps filled or broken]
+
+— TOP ANALYST UPGRADES & DOWNGRADES TODAY —
+🟢 UPGRADE: [Company] ($[TICKER]) | Now: $[price] | New Target: $[price] by [Month Year] | [analyst firm] — [one-line reason]
+🟢 UPGRADE: [Company] ($[TICKER]) | Now: $[price] | New Target: $[price] by [Month Year] | [analyst firm] — [one-line reason]
+🟢 UPGRADE: [Company] ($[TICKER]) | Now: $[price] | New Target: $[price] by [Month Year] | [analyst firm] — [one-line reason]
+🔴 DOWNGRADE: [Company] ($[TICKER]) | Now: $[price] | New Target: $[price] by [Month Year] | [analyst firm] — [one-line reason]
+🔴 DOWNGRADE: [Company] ($[TICKER]) | Now: $[price] | New Target: $[price] by [Month Year] | [analyst firm] — [one-line reason]
+
+— SECTORS TO WATCH —
+🔥 Strong: [sector] — [one-line reason]
+❄️ Weak: [sector] — [one-line reason]
+
+— NEWS DRIVING THE MARKET —
+🇺🇸 [Trump/US policy headline impacting markets — one sentence]
+🌐 [International headline — one sentence]
+💼 [Earnings/economic data headline — one sentence]
+📰 [Additional major story — one sentence]
+
+— REST OF DAY OUTLOOK —
+[2-3 sentences: what to watch into close, key support/resistance, afternoon catalysts]
+
+⚠️ Key Risk: [one sentence, max 15 words]"""
+
+def build_prompt(market_data: str) -> str:
+    label = "pre-market" if MODE == "premarket" else "early session (1.5 hours after open)"
     return (
         f"Today is {datetime.now().strftime('%A, %B %d, %Y')}.\n\n"
-        f"Live pre-market data:\n{market_data}\n\n"
-        "Generate today's full pre-market briefing using the data and format above. "
-        "Use real analyst calls and today's actual news headlines. "
+        f"Live {label} data:\n{market_data}\n\n"
+        "Generate the briefing using the data and format above. "
+        "Use real analyst calls and today's actual news. "
         "Strict format only. No markdown. No extra lines."
     )
 
@@ -120,16 +165,17 @@ def fetch_briefing() -> str:
         raise ValueError("GEMINI_API_KEY not set.")
 
     market_data = fetch_market_data()
+    system = PREMARKET_SYSTEM if MODE == "premarket" else ANALYSIS_SYSTEM
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    log.info("Calling Gemini (model=%s)...", GEMINI_MODEL)
+    log.info("Calling Gemini (model=%s, mode=%s)...", GEMINI_MODEL, MODE)
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=build_user_prompt(market_data),
+        contents=build_prompt(market_data),
         config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            max_output_tokens=800,
+            system_instruction=system,
+            max_output_tokens=1000,
             temperature=0.1,
         ),
     )
@@ -165,7 +211,7 @@ def send_telegram(message: str) -> bool:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("=== Briefing Job Start ===")
+    log.info("=== Briefing Job Start (mode=%s) ===", MODE)
     try:
         message = fetch_briefing()
         log.info("--- Message ---\n%s\n---", message)

@@ -1,15 +1,14 @@
-name: Daily Pre-Market Stock Briefing
+name: Pre-Market Briefing (6:30 AM PST)
 
 on:
-  # Runs at 7:30 AM PST (15:30 UTC) every weekday Mon–Fri
+  # 6:30 AM PST = 14:30 UTC (PST is UTC-8)
   schedule:
-    - cron: "30 15 * * 1-5"
+    - cron: "30 14 * * 1-5"
 
-  # Manual trigger from GitHub Actions tab (for testing)
   workflow_dispatch:
 
 jobs:
-  send-briefing:
+  send-premarket:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -26,10 +25,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run briefing
+      - name: Send pre-market briefing
         env:
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL:       ${{ secrets.GEMINI_MODEL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          BRIEFING_MODE:      premarket
         run: python briefing.py

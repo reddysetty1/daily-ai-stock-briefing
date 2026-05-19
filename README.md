@@ -86,8 +86,9 @@ Add these three secrets:
 
 | Secret name | Value |
 |-------------|-------|
-| `GEMINI_API_KEY` | Your Gemini API key |
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token |
+| `GEMINI_API_KEY` | Your Gemini API key from [AI Studio](https://aistudio.google.com/app/apikey) |
+| `GEMINI_MODEL` | Model name e.g. `gemini-3.1-flash-lite`, `gemini-2.0-flash`, `gemini-1.5-pro` |
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token from BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
 ### 4. Enable GitHub Actions

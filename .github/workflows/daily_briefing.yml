@@ -29,7 +29,7 @@ jobs:
       - name: Run briefing
         env:
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL:       gemini-3.1-flash-lite
+          GEMINI_MODEL:       ${{ secrets.GEMINI_MODEL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python briefing.py

@@ -1,9 +1,9 @@
 name: Daily Pre-Market Stock Briefing
 
 on:
-  # Runs at 7:00 AM IST (01:30 UTC) every weekday Mon–Fri
+  # Runs at 7:30 AM PST (15:30 UTC) every weekday Mon–Fri
   schedule:
-    - cron: "30 1 * * 1-5"
+    - cron: "30 15 * * 1-5"
 
   # Manual trigger from GitHub Actions tab (for testing)
   workflow_dispatch:

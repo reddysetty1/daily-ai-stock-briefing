@@ -163,8 +163,40 @@ def fetch_technical_data(ticker: str) -> dict:
     vol_pct       = round((today_vol / avg_vol_20 - 1) * 100, 1) if avg_vol_20 else 0
     vol_label     = f"{abs(vol_pct)}% {'above' if vol_pct >= 0 else 'below'} 20-day avg"
 
-    # Support / Resistance (last 60 days)
+    # Support / Resistance (last 60 days daily)
     supports, resistances = find_support_resistance(highs.tail(60), lows.tail(60))
+
+    # Weekly data — last 26 weeks for weekly-level technicals
+    weekly = t.history(period="6mo", interval="1wk")
+    w_closes  = weekly["Close"]
+    w_highs   = weekly["High"]
+    w_lows    = weekly["Low"]
+
+    week_open      = round(float(weekly["Open"].iloc[-1]),  2) if not weekly.empty else current_price
+    week_high_so_far = round(float(w_highs.iloc[-1]),  2) if not weekly.empty else current_price
+    week_low_so_far  = round(float(w_lows.iloc[-1]),   2) if not weekly.empty else current_price
+
+    # Weekly moving averages (10-week ≈ 50-day, 40-week ≈ 200-day)
+    wma10 = round(float(w_closes.rolling(10).mean().iloc[-1]), 2) if len(w_closes) >= 10 else None
+    wma20 = round(float(w_closes.rolling(20).mean().iloc[-1]), 2) if len(w_closes) >= 20 else None
+
+    # Weekly RSI & MACD
+    weekly_rsi = calculate_rsi(w_closes, period=14) if len(w_closes) >= 20 else None
+    if weekly_rsi:
+        if weekly_rsi >= 70:
+            weekly_rsi_label = "Overbought"
+        elif weekly_rsi <= 30:
+            weekly_rsi_label = "Oversold"
+        else:
+            weekly_rsi_label = "Neutral"
+    else:
+        weekly_rsi_label = "N/A"
+
+    w_macd, w_signal, w_hist = calculate_macd(w_closes) if len(w_closes) >= 26 else (None, None, None)
+    weekly_macd_label = "Bullish" if (w_macd and w_macd > w_signal) else "Bearish"
+
+    # Weekly support / resistance (last 26 weeks)
+    w_supports, w_resistances = find_support_resistance(w_highs, w_lows, window=3)
 
     # Today's intraday data
     intraday = t.history(period="1d", interval="5m")
@@ -208,13 +240,25 @@ def fetch_technical_data(ticker: str) -> dict:
         "volume":         today_vol,
         "avg_vol_20":     avg_vol_20,
         "vol_label":      vol_label,
-        "supports":       supports,
-        "resistances":    resistances,
+        "supports":           supports,
+        "resistances":        resistances,
+        "week_open":          week_open,
+        "week_high_so_far":   week_high_so_far,
+        "week_low_so_far":    week_low_so_far,
+        "wma10":              wma10,
+        "wma20":              wma20,
+        "weekly_rsi":         weekly_rsi,
+        "weekly_rsi_label":   weekly_rsi_label,
+        "weekly_macd_label":  weekly_macd_label,
+        "w_supports":         w_supports,
+        "w_resistances":      w_resistances,
     }
 
 def format_tech_data(d: dict) -> str:
-    sup = " / ".join([f"${s}" for s in d["supports"]])    or "N/A"
-    res = " / ".join([f"${r}" for r in d["resistances"]]) or "N/A"
+    sup   = " / ".join([f"${s}" for s in d["supports"]])      or "N/A"
+    res   = " / ".join([f"${r}" for r in d["resistances"]])   or "N/A"
+    w_sup = " / ".join([f"${s}" for s in d["w_supports"]])    or "N/A"
+    w_res = " / ".join([f"${r}" for r in d["w_resistances"]]) or "N/A"
     arrow = "up" if d["day_change"] >= 0 else "down"
 
     return f"""
@@ -228,43 +272,58 @@ TODAY SO FAR:
   Low:  ${d['today_low']}
   VWAP: ${d['vwap']}
 
+THIS WEEK SO FAR:
+  Week Open:         ${d['week_open']}
+  Week High so far:  ${d['week_high_so_far']}
+  Week Low so far:   ${d['week_low_so_far']}
+
 52-WEEK RANGE: ${d['week52_low']} — ${d['week52_high']}
 
-MOVING AVERAGES:
+DAILY MOVING AVERAGES:
   50-day MA:  ${d['ma50']}  (price is {'above' if d['current_price'] > d['ma50'] else 'below'})
   200-day MA: ${d['ma200']} (price is {'above' if d['current_price'] > d['ma200'] else 'below'})
   9-day EMA:  ${d['ema9']}
   21-day EMA: ${d['ema21']}
   Trend: {d['trend']}
 
-RSI (14): {d['rsi']} — {d['rsi_label']}
+WEEKLY MOVING AVERAGES:
+  10-week MA: ${d['wma10'] or 'N/A'}
+  20-week MA: ${d['wma20'] or 'N/A'}
 
-MACD:
+DAILY RSI (14): {d['rsi']} — {d['rsi_label']}
+WEEKLY RSI (14): {d['weekly_rsi'] or 'N/A'} — {d['weekly_rsi_label']}
+
+DAILY MACD:
   MACD Line:   {d['macd']}
   Signal Line: {d['macd_signal']}
   Histogram:   {d['macd_hist']}
   Status: {d['macd_label']}
+WEEKLY MACD: {d['weekly_macd_label']}
 
 VOLUME:
   Today: {d['volume']:,}
   20-day avg: {d['avg_vol_20']:,}
   Status: {d['vol_label']}
 
-SUPPORT LEVELS:    {sup}
-RESISTANCE LEVELS: {res}
+DAILY SUPPORT:     {sup}
+DAILY RESISTANCE:  {res}
+WEEKLY SUPPORT:    {w_sup}
+WEEKLY RESISTANCE: {w_res}
 """.strip()
 
 # ── Gemini Prediction ─────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a professional technical analyst. You are given full technical data for a stock.
-Your job is to estimate the likely HIGH and LOW price for the remainder of today's trading session.
-Base your estimate ONLY on the technical data provided. Be specific with numbers.
+You are a professional technical analyst. You are given full daily and weekly technical data for a stock.
+Your job is to estimate:
+  1. Today's likely HIGH and LOW for the remainder of the session
+  2. This week's expected HIGH and LOW — with recommended entry and exit prices for a short-term trade
+Base ALL estimates ONLY on the technical data provided. Be specific with dollar amounts.
 Do NOT use markdown, asterisks, or bold. Plain text only. Use the emoji prefix shown exactly.
 
 Output EXACTLY this format — no extra lines, no deviations:
 
-🎯 [TICKER] — Intraday Prediction
+🎯 [TICKER] — Price Prediction
 
 📅 [Day, Month Date Year]
 
@@ -274,20 +333,29 @@ Today High: $[high] | Today Low: $[low]
 VWAP: $[vwap]
 
 — TECHNICAL SNAPSHOT —
-Trend: [trend]
-RSI(14): [value] — [label, + brief note on what this means for today]
-MACD: [bullish/bearish label + brief note]
+Daily Trend: [trend]
+Daily RSI(14): [value] — [label + brief implication]
+Weekly RSI(14): [value] — [label + brief implication]
+MACD (Daily): [bullish/bearish + brief note]
+MACD (Weekly): [bullish/bearish + brief note]
 Volume: [vol label — what it signals]
-Support: [levels]
-Resistance: [levels]
+Daily Support: [levels] | Daily Resistance: [levels]
+Weekly Support: [levels] | Weekly Resistance: [levels]
 
 — TODAY'S ESTIMATE —
-📈 Estimated High: $[price]
-📉 Estimated Low:  $[price]
+📈 Today High: $[price]
+📉 Today Low:  $[price]
+📊 Confidence: [Low / Moderate / High] — [one-line reason]
+
+— THIS WEEK'S ESTIMATE (Short-Term Trade) —
+📈 Week High Target: $[price]
+📉 Week Low Target:  $[price]
+🟢 Entry Price:  $[price] — [one-line reason: why this is a good entry]
+🔴 Exit Price:   $[price] — [one-line reason: take profit / stop loss level]
 📊 Confidence: [Low / Moderate / High] — [one-line reason]
 
 — REASONING —
-[2-3 tight sentences explaining the estimate based on the technicals]
+[3-4 tight sentences: explain both the daily and weekly estimates using the technicals]
 
 ⚠️ Note: Technical analysis only. Not financial advice."""
 
@@ -304,7 +372,7 @@ def fetch_prediction(tech_data_str: str) -> str:
         ),
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-            max_output_tokens=600,
+            max_output_tokens=800,
             temperature=0.1,
         ),
     )

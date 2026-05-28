@@ -348,14 +348,16 @@ Weekly Support: [levels] | Weekly Resistance: [levels]
 📊 Confidence: [Low / Moderate / High] — [one-line reason]
 
 — THIS WEEK'S ESTIMATE (Short-Term Trade) —
-📈 Week High Target: $[price] — expected by [Day, Month Date]
-📉 Week Low Target:  $[price] — expected by [Day, Month Date]
-🟢 Entry Price:  $[price] around [Day, Month Date] — [one-line reason: why this is a good entry]
-🔴 Exit Price:   $[price] around [Day, Month Date] — [one-line reason: take profit / stop loss level]
+🗺️ Expected Path: [Describe the sequence clearly, e.g. "Rally to $X first by [date], then pull back to $Y by [date]" OR "Drop to $X first by [date], then recover to $Y by [date]"]
+📉 Week Low:  $[price] — expected by [Day, Month Date]
+📈 Week High: $[price] — expected by [Day, Month Date]
+🟢 Entry:  $[price] around [Day, Month Date] — [one-line reason]
+🔴 Exit:   $[price] around [Day, Month Date] — [one-line reason]
+🔄 Recovery after exit? [Yes — likely to recover to $X by [date] / No — expect further downside after exit]
 📊 Confidence: [Low / Moderate / High] — [one-line reason]
 
 — REASONING —
-[3-4 tight sentences: explain both the daily and weekly estimates using the technicals]
+[3-4 tight sentences: explain the expected price path sequence — which move comes first and why, what triggers the reversal, and whether recovery is expected after the exit]
 
 ⚠️ Note: Technical analysis only. Not financial advice."""
 

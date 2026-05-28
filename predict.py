@@ -348,10 +348,10 @@ Weekly Support: [levels] | Weekly Resistance: [levels]
 📊 Confidence: [Low / Moderate / High] — [one-line reason]
 
 — THIS WEEK'S ESTIMATE (Short-Term Trade) —
-📈 Week High Target: $[price]
-📉 Week Low Target:  $[price]
-🟢 Entry Price:  $[price] — [one-line reason: why this is a good entry]
-🔴 Exit Price:   $[price] — [one-line reason: take profit / stop loss level]
+📈 Week High Target: $[price] — expected by [Day, Month Date]
+📉 Week Low Target:  $[price] — expected by [Day, Month Date]
+🟢 Entry Price:  $[price] around [Day, Month Date] — [one-line reason: why this is a good entry]
+🔴 Exit Price:   $[price] around [Day, Month Date] — [one-line reason: take profit / stop loss level]
 📊 Confidence: [Low / Moderate / High] — [one-line reason]
 
 — REASONING —

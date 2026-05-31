@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: stock-analysis-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --worker-class gevent --workers 1 --timeout 300 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false          # set manually in Render dashboard
+      - key: GEMINI_MODEL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: APP_PASSWORD
+        sync: false          # password to access the web dashboard
+      - key: SECRET_KEY
+        generateValue: true  # auto-generated session secret
+    plan: free

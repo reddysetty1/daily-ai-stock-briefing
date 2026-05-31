@@ -21,12 +21,48 @@ No server. No cost. Wake up, open your dashboard, and get institutional-grade tr
 
 ---
 
-## 🖥️ Web Dashboard — open every morning
+## 🖥️ Web Dashboard
 
-The dashboard is a local Flask web app. **One double-click to launch it.**
+Accessible from **any device** — laptop, phone, iPad — no installation needed on mobile.
 
-### First-time setup (once only)
+---
 
+### Option A — Hosted on Render (recommended, access from anywhere)
+
+Deploy once, use forever from any device at a permanent URL like `https://stock-analysis-dashboard.onrender.com`.
+
+#### Step 1 — Deploy to Render
+
+1. Go to [render.com](https://render.com) → sign up free → **New → Web Service**
+2. Connect your GitHub account → select this repo
+3. Render auto-detects the settings from `render.yaml`
+4. Click **Create Web Service**
+
+#### Step 2 — Set environment variables in Render
+
+Go to your service → **Environment** tab → add these:
+
+| Key | Value |
+|-----|-------|
+| `GEMINI_API_KEY` | Your Gemini API key |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` |
+| `TELEGRAM_BOT_TOKEN` | Your bot token |
+| `TELEGRAM_CHAT_ID` | Your chat ID |
+| `APP_PASSWORD` | **Choose a strong password** (protects the dashboard) |
+| `SECRET_KEY` | Any long random string (e.g. `openssl rand -hex 32`) |
+
+#### Step 3 — Open from any device
+
+Visit your Render URL → enter your password → done.
+Bookmark it on your phone's home screen for one-tap access every morning.
+
+> **Free tier note:** Render free services sleep after 15 min of inactivity. First visit of the day takes ~30 seconds to wake up. Upgrade to Render Starter ($7/mo) for always-on.
+
+---
+
+### Option B — Local only (laptop)
+
+**First-time setup:**
 ```bash
 git clone https://github.com/YOUR_USERNAME/daily-ai-stock-briefing
 cd daily-ai-stock-briefing
@@ -34,23 +70,11 @@ pip install -r requirements.txt
 cp .env.example .env        # fill in your API keys
 ```
 
-### Daily use — Windows
+**Daily use — Windows:** Double-click `launch.bat`
 
-**Double-click `launch.bat`** in the project folder. It opens the dashboard at `http://localhost:5000` automatically.
+**Daily use — Mac/Linux:** Double-click `launch.command` (or `python app.py`)
 
-Or from terminal:
-```bash
-python app.py
-```
-
-### Daily use — Mac / Linux
-
-**Double-click `launch.command`** in the project folder, or:
-```bash
-python app.py
-```
-
-> The app auto-opens your browser. Just leave the terminal window running in the background while you use the dashboard.
+> Auto-opens `http://localhost:5000` in your browser.
 
 ---
 

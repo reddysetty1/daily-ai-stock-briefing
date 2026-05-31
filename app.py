@@ -1,18 +1,25 @@
 """
-app.py — Local web dashboard for stock analysis.
-Run with: python app.py
-Opens at: http://localhost:5000
+app.py — Stock analysis web dashboard.
+Local:  python app.py  →  http://localhost:5000
+Hosted: deployed on Render, accessible from any device.
+Protected by APP_PASSWORD env var (set a password before hosting).
 """
 
-import io, sys, os, json, threading, time
+import io, sys, os, json, threading, time, secrets
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from functools import wraps
+from flask import (Flask, render_template, request, jsonify,
+                   Response, stream_with_context, session, redirect, url_for)
 from dotenv import load_dotenv
 
 load_dotenv()
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+try:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+except Exception:
+    pass   # already wrapped (e.g. on Render)
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CONFIG_PATH   = os.path.join(os.path.dirname(__file__), "config.json")
@@ -20,6 +27,34 @@ GEMINI_MODEL  = os.getenv("GEMINI_MODEL",  "gemini-3.1-flash-lite")
 GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "")
 TG_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT_ID    = os.getenv("TELEGRAM_CHAT_ID",   "")
+APP_PASSWORD  = os.getenv("APP_PASSWORD", "")   # set this to protect the dashboard
+
+# ── Auth helpers ───────────────────────────────────────────────────────────────
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if APP_PASSWORD and not session.get("authenticated"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        if request.form.get("password") == APP_PASSWORD:
+            session["authenticated"] = True
+            session.permanent = True
+            return redirect(request.args.get("next") or url_for("index"))
+        error = "Incorrect password."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 with open(CONFIG_PATH) as f:
     CONFIG = json.load(f)
@@ -42,11 +77,13 @@ def _gemini_client():
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html", universe=UNIVERSE)
 
 
 @app.route("/api/market", methods=["GET"])
+@login_required
 def api_market():
     """Quick SPY / QQQ / IWM snapshot."""
     try:
@@ -64,6 +101,7 @@ def api_market():
 
 
 @app.route("/api/analyze", methods=["POST"])
+@login_required
 def api_analyze():
     """
     Full single-stock analysis.
@@ -194,6 +232,7 @@ def api_analyze():
 
 
 @app.route("/api/scan", methods=["POST"])
+@login_required
 def api_scan():
     """
     Run the full daily scan (all 40 stocks).
@@ -360,7 +399,10 @@ def api_scan():
 
 if __name__ == "__main__":
     import webbrowser
+    port = int(os.getenv("PORT", 5000))
+    is_local = port == 5000
     print("🚀 Starting Stock Analysis Dashboard...")
-    print("📊 Opening http://localhost:5000")
-    threading.Timer(1.2, lambda: webbrowser.open("http://localhost:5000")).start()
-    app.run(debug=False, port=5000, threaded=True)
+    if is_local:
+        print(f"📊 Opening http://localhost:{port}")
+        threading.Timer(1.2, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)

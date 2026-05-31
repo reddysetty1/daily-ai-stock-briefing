@@ -86,7 +86,12 @@ cp .env.example .env        # fill in your API keys
 - Toggle **Send to Telegram** to push results to your phone simultaneously
 
 ### 📈 Daily Scanner tab
-- Scans **all 10,000+ stocks** in parallel (12 workers) — completes in ~15–20 min
+- **Two-phase scan**: fast pre-filter (Phase 1) eliminates junk in seconds, full analysis (Phase 2) only on quality stocks
+- **Phase 1 — Pre-filter** via `fast_info` (~0.1s/ticker, 30 parallel workers):
+  - Min price $5 · Min avg volume 500K · Min relative volume 0.3× · Min market cap $300M
+  - All thresholds configurable from the ⚙ Filters panel — no code changes needed
+- **Phase 2 — Full analysis** on the filtered subset only — typical S&P 500 scan takes **~30–60 seconds** instead of minutes
+- Scope selector: S&P 500 (default), Top Indices, All NASDAQ, All NYSE, All Markets
 - Live progress — every ticker appears as it's scored, colour-coded green / yellow / red
 - Top picks shown as cards with entry zone, stop, targets, R:R ratio
 - Click any pick → drills into the Analyzer tab with full detail
@@ -276,6 +281,8 @@ python app.py          # opens http://localhost:5000
 | Scoring weights | `config.json` → `weights` |
 | Account size & risk per trade | `config.json` → `risk` |
 | Minimum score threshold | `config.json` → `selection.min_score` |
+| Pre-filter defaults | `screener.py` → `DEFAULT_FILTERS` |
+| Pre-filter per scan | ⚙ Filters panel in the Scanner tab |
 | Schedule times | `.github/workflows/*.yml` cron expressions |
 | Gemini model | `GEMINI_MODEL` secret or `.env` |
 | Universe refresh interval | `universe.py` → `CACHE_TTL` (default: 7 days) |
@@ -293,6 +300,7 @@ python app.py          # opens http://localhost:5000
 ├── eod_summary.py       # EOD performance check
 │
 ├── universe.py          # Dynamic universe loader (SEC + Wikipedia, ~10K stocks)
+├── screener.py          # Fast pre-filter: price, volume, rel-volume, market-cap
 ├── tech_analysis.py     # RSI, MACD, ATR, Bollinger, support/resistance
 ├── fundamentals.py      # yfinance fundamentals fetch + scoring
 ├── scoring.py           # Multi-factor stock scoring engine

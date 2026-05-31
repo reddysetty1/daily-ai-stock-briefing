@@ -256,10 +256,20 @@ def api_scan():
     send_tg   = request.args.get("telegram", "1") == "1"
     scope     = SCOPES.get(scope_key, SCOPES["sp500"])
 
+    # Parse filter params from query string
+    filters = {
+        "min_price":      float(request.args.get("min_price",      5.0)),
+        "max_price":      float(request.args.get("max_price",      0)) or None,
+        "min_avg_volume": float(request.args.get("min_avg_volume", 500_000)),
+        "min_rel_volume": float(request.args.get("min_rel_volume", 0.3)),
+        "min_market_cap": float(request.args.get("min_market_cap", 300_000_000)),
+    }
+
     def generate():
         try:
             import yfinance as yf
             from concurrent.futures import ThreadPoolExecutor
+            from screener       import screen
             from tech_analysis  import fetch_full_technical
             from fundamentals   import fetch_fundamentals
             from scoring        import score_stock
@@ -272,14 +282,36 @@ def api_scan():
             risk_cfg = CONFIG["risk"]
 
             # Filter universe by scope
-            tickers = [t for t, v in _universe_full.items() if scope["filter"](v)]
-            total   = len(tickers)
+            universe_tickers = [t for t, v in _universe_full.items() if scope["filter"](v)]
+            universe_total   = len(universe_tickers)
 
             def sse(payload: dict) -> str:
                 return f"data: {json.dumps(payload)}\n\n"
 
-            # Market context
-            yield sse({"type": "status", "msg": f"Scanning {total} stocks ({scope['label']})…"})
+            # ── Phase 1: Fast pre-filter ───────────────────────────────────────
+            yield sse({"type": "phase", "phase": 1,
+                       "msg": f"Phase 1 — Pre-filtering {universe_total} stocks…"})
+
+            screened_done = [0]
+            def on_progress(done, total, ticker):
+                screened_done[0] = done
+
+            passed, summaries = screen(universe_tickers, filters, workers=30,
+                                       progress_cb=on_progress)
+            total = len(passed)
+
+            yield sse({"type": "screened",
+                       "passed": total,
+                       "total":  universe_total,
+                       "msg":    f"✓ {total} stocks passed filters — running full analysis…"})
+
+            if total == 0:
+                yield sse({"type": "error",
+                           "msg": "No stocks passed the filters. Try relaxing the thresholds."})
+                return
+
+            # ── Phase 2: Market context ────────────────────────────────────────
+            yield sse({"type": "status", "msg": f"Fetching market context…"})
 
             market_data = {}
             for etf in ["SPY", "QQQ", "IWM"]:
@@ -306,7 +338,7 @@ def api_scan():
             scored = []
             done   = 0
             for batch_start in range(0, total, BATCH_SIZE):
-                batch = tickers[batch_start: batch_start + BATCH_SIZE]
+                batch = passed[batch_start: batch_start + BATCH_SIZE]
                 with ThreadPoolExecutor(max_workers=min(BATCH_SIZE, len(batch))) as pool:
                     results = list(pool.map(score_one, batch, timeout=30))
 

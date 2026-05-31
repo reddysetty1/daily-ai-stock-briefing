@@ -278,6 +278,50 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Filter panel ────────────────────────────────────────────── */
+    .filter-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted); cursor: pointer;
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 12px; background: var(--surface2); transition: all .15s;
+      user-select: none;
+    }
+    .filter-toggle:hover { border-color: var(--accent); color: var(--text); }
+    .filter-toggle.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.08); }
+
+    .filter-panel {
+      margin-top: 14px; padding: 16px 18px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; display: none;
+    }
+    .filter-panel.open { display: block; }
+    .filter-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px 20px;
+    }
+    .filter-field label {
+      display: block; font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px;
+    }
+    .filter-field input {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 10px; color: var(--text);
+      font-size: 13px; outline: none; transition: border .15s;
+    }
+    .filter-field input:focus { border-color: var(--accent); }
+    .filter-hint { font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+    .phase-banner {
+      display: none; margin-top: 12px; padding: 10px 14px;
+      background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.2);
+      border-radius: 8px; font-size: 13px; color: var(--accent);
+    }
+    .screened-banner {
+      display: none; margin-top: 8px; padding: 10px 14px;
+      background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.2);
+      border-radius: 8px; font-size: 13px; color: var(--green);
+    }
+
     /* ── Utils ────────────────────────────────────────────────────── */
     .positive { color: var(--green); }
     .negative { color: var(--red); }
@@ -377,6 +421,41 @@
         <div id="scope-eta" style="font-size:12px;color:var(--muted);margin-top:6px;">⏱ Estimated time: ~3 min</div>
       </div>
 
+      <!-- Filter panel -->
+      <div style="margin-bottom:16px;">
+        <button class="filter-toggle" id="filter-toggle-btn" onclick="toggleFilters()">
+          ⚙ Filters <span id="filter-toggle-label">Show</span>
+        </button>
+        <div class="filter-panel" id="filter-panel">
+          <div class="filter-grid">
+            <div class="filter-field">
+              <label>Min Price ($)</label>
+              <input type="number" id="f-min-price" value="5" min="0" step="1" placeholder="5">
+            </div>
+            <div class="filter-field">
+              <label>Max Price ($) — optional</label>
+              <input type="number" id="f-max-price" value="" min="0" step="1" placeholder="leave blank for no limit">
+            </div>
+            <div class="filter-field">
+              <label>Min Avg Volume</label>
+              <input type="number" id="f-min-vol" value="500000" min="0" step="50000" placeholder="500000">
+            </div>
+            <div class="filter-field">
+              <label>Min Relative Volume</label>
+              <input type="number" id="f-min-rel-vol" value="0.3" min="0" max="5" step="0.1" placeholder="0.3">
+            </div>
+            <div class="filter-field">
+              <label>Min Market Cap ($)</label>
+              <input type="number" id="f-min-mktcap" value="300000000" min="0" step="10000000" placeholder="300000000">
+            </div>
+          </div>
+          <div class="filter-hint">
+            💡 Tip: Relative volume &gt; 1.0 means unusually high activity today vs the 3-month average.
+            Lowering these thresholds widens the scan but increases time. Defaults are conservative.
+          </div>
+        </div>
+      </div>
+
       <div class="scan-controls">
         <button class="btn btn-primary" id="scan-btn" onclick="runScan()">
           <span id="scan-btn-text">▶ Run Scanner</span>
@@ -389,7 +468,9 @@
       </div>
 
       <div class="scan-progress" id="scan-progress">
-        <div class="progress-track" style="margin-top:16px;">
+        <div class="phase-banner"   id="phase-banner"></div>
+        <div class="screened-banner" id="screened-banner"></div>
+        <div class="progress-track" style="margin-top:12px;">
           <div class="progress-fill" id="progress-fill" style="width:0%"></div>
         </div>
         <div class="progress-label" id="progress-label">Starting…</div>
@@ -670,6 +751,25 @@ function renderAnalysis(d) {
   </div>`;
 }
 
+// ── Filter panel ─────────────────────────────────────────────────────────────
+function toggleFilters() {
+  const panel = document.getElementById('filter-panel');
+  const btn   = document.getElementById('filter-toggle-btn');
+  const lbl   = document.getElementById('filter-toggle-label');
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('active', open);
+  lbl.textContent = open ? 'Hide' : 'Show';
+}
+
+function getFilterParams() {
+  const minPrice   = parseFloat(document.getElementById('f-min-price').value)   || 5;
+  const maxPrice   = parseFloat(document.getElementById('f-max-price').value)   || 0;
+  const minVol     = parseFloat(document.getElementById('f-min-vol').value)     || 500000;
+  const minRelVol  = parseFloat(document.getElementById('f-min-rel-vol').value) || 0.3;
+  const minMktCap  = parseFloat(document.getElementById('f-min-mktcap').value)  || 300000000;
+  return `&min_price=${minPrice}&max_price=${maxPrice}&min_avg_volume=${minVol}&min_rel_volume=${minRelVol}&min_market_cap=${minMktCap}`;
+}
+
 // ── Scope selector ────────────────────────────────────────────────────────────
 const SCOPE_ETA = {
   sp500:  '~3 min',
@@ -711,16 +811,33 @@ function runScan() {
   fill.style.width = '0%';
   label.textContent = 'Connecting…';
   status.textContent = '';
+  document.getElementById('phase-banner').style.display    = 'none';
+  document.getElementById('screened-banner').style.display = 'none';
 
   // GET endpoint — proxies never buffer GET+SSE
-  const url = `/api/scan?scope=${currentScope}&telegram=${sendTg ? 1 : 0}`;
+  const url = `/api/scan?scope=${currentScope}&telegram=${sendTg ? 1 : 0}${getFilterParams()}`;
   const es = new EventSource(url);
   activeES = es;
 
   es.onmessage = (e) => {
     const msg = JSON.parse(e.data);
 
-    if (msg.type === 'status') {
+    if (msg.type === 'phase') {
+      const banner = document.getElementById('phase-banner');
+      banner.textContent = '🔍 ' + msg.msg;
+      banner.style.display = 'block';
+      label.textContent = msg.msg;
+    }
+
+    else if (msg.type === 'screened') {
+      document.getElementById('phase-banner').style.display = 'none';
+      const banner = document.getElementById('screened-banner');
+      banner.textContent = `✅ ${msg.passed} of ${msg.total} stocks passed filters — running full analysis…`;
+      banner.style.display = 'block';
+      label.textContent = msg.msg;
+    }
+
+    else if (msg.type === 'status') {
       label.textContent = msg.msg;
     }
 
@@ -742,7 +859,7 @@ function runScan() {
 
     else if (msg.type === 'done') {
       fill.style.width = '100%';
-      label.textContent = `Done! Scanned ${msg.total_scanned} stocks.`;
+      label.textContent = `Done! Full analysis on ${msg.total_scanned} filtered stocks.`;
       status.textContent = `${msg.picks.length} picks selected`;
       renderPicks(msg.picks, msg.total_scanned);
       btn.disabled = false;
@@ -772,7 +889,7 @@ function renderPicks(picks, total) {
   const grid    = document.getElementById('picks-grid');
   const results = document.getElementById('scan-results');
   const title   = document.getElementById('scan-result-title');
-  title.textContent = `Top ${picks.length} Picks — Scanned ${total} stocks`;
+  title.textContent = `Top ${picks.length} Picks — Full analysis on ${total} filtered stocks`;
   grid.innerHTML = picks.map(p => {
     const chgClass = p.change >= 0 ? 'positive' : 'negative';
     const chgSign  = p.change >= 0 ? '+' : '';

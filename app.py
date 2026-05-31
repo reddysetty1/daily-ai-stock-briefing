@@ -327,12 +327,16 @@ def api_scan():
             yield sse({"type": "market", "data": market_data})
 
             def score_one(ticker):
-                tech   = fetch_full_technical(ticker)
-                fund   = fetch_fundamentals(ticker)
-                sector = fund.get("sector") or _universe_full.get(ticker, {}).get("sector", "")
-                sm     = {ticker: get_sector_etf(sector)}
-                sc, bd = score_stock(ticker, tech, fund, market_data, sm, weights)
-                return {"ticker": ticker, "score": sc, "tech": tech, "fund": fund, "breakdown": bd}
+                try:
+                    tech   = fetch_full_technical(ticker)
+                    fund   = fetch_fundamentals(ticker)
+                    sector = fund.get("sector") or _universe_full.get(ticker, {}).get("sector", "")
+                    sm     = {ticker: get_sector_etf(sector)}
+                    sc, bd = score_stock(ticker, tech, fund, market_data, sm, weights)
+                    return {"ticker": ticker, "score": sc, "tech": tech, "fund": fund, "breakdown": bd}
+                except Exception as ex:
+                    pass  # skip bad ticker silently
+                    return None
 
             # Score in fixed batches — yield between batches so gevent can flush the stream
             scored = []
@@ -340,7 +344,15 @@ def api_scan():
             for batch_start in range(0, total, BATCH_SIZE):
                 batch = passed[batch_start: batch_start + BATCH_SIZE]
                 with ThreadPoolExecutor(max_workers=min(BATCH_SIZE, len(batch))) as pool:
-                    results = list(pool.map(score_one, batch, timeout=30))
+                    futures = {pool.submit(score_one, t): t for t in batch}
+                    from concurrent.futures import as_completed as _asc
+                    results = []
+                    for fut in _asc(futures, timeout=45):
+                        try:
+                            results.append(fut.result())
+                        except Exception as ex:
+                            pass  # skip bad ticker silently
+                            results.append(None)
 
                 for r in results:
                     done += 1
@@ -356,7 +368,8 @@ def api_scan():
                             "rsi":   round(r["tech"].get("rsi", 0), 1),
                         })
                     else:
-                        yield sse({"type": "scored", "ticker": "?", "score": 0, "i": done, "total": total})
+                        yield sse({"type": "scored", "ticker": "?", "score": 0,
+                                   "i": done, "total": total})
 
                 time.sleep(0)   # yield to gevent event loop — flushes buffered SSE events
 

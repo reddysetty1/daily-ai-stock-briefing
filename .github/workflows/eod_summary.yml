@@ -1,0 +1,41 @@
+name: EOD Performance Summary
+
+on:
+  schedule:
+    # 3:15 PM PST = 23:15 UTC  (Mon-Fri)
+    - cron: '15 23 * * 1-5'
+  workflow_dispatch:   # allow manual trigger for testing
+
+jobs:
+  eod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore picks cache from morning scan
+        # Try to find the cache saved by the daily_scan workflow today.
+        # If not found (holiday / manual run), eod_summary.py exits gracefully.
+        uses: actions/cache/restore@v4
+        with:
+          path: picks_cache.json
+          key: picks-cache-${{ runner.os }}-        # exact key unknown; use restore-keys prefix
+          restore-keys: |
+            picks-cache-${{ runner.os }}-
+        continue-on-error: true
+
+      - name: Run EOD summary
+        env:
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python eod_summary.py

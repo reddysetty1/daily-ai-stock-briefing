@@ -1,0 +1,90 @@
+{
+  "universe": {
+    "AAPL":  "Apple",
+    "MSFT":  "Microsoft",
+    "NVDA":  "NVIDIA",
+    "META":  "Meta",
+    "GOOGL": "Alphabet",
+    "AMZN":  "Amazon",
+    "CRM":   "Salesforce",
+    "ORCL":  "Oracle",
+    "AMD":   "AMD",
+    "INTC":  "Intel",
+    "QCOM":  "Qualcomm",
+    "PLTR":  "Palantir",
+    "TSLA":  "Tesla",
+    "HD":    "Home Depot",
+    "NKE":   "Nike",
+    "MCD":   "McDonald's",
+    "SBUX":  "Starbucks",
+    "BKNG":  "Booking Holdings",
+    "JPM":   "JPMorgan",
+    "BAC":   "Bank of America",
+    "GS":    "Goldman Sachs",
+    "V":     "Visa",
+    "MA":    "Mastercard",
+    "JNJ":   "Johnson & Johnson",
+    "UNH":   "UnitedHealth",
+    "LLY":   "Eli Lilly",
+    "ABBV":  "AbbVie",
+    "MRK":   "Merck",
+    "XOM":   "Exxon",
+    "CVX":   "Chevron",
+    "CAT":   "Caterpillar",
+    "BA":    "Boeing",
+    "HON":   "Honeywell",
+    "GE":    "GE Aerospace",
+    "NFLX":  "Netflix",
+    "DIS":   "Disney",
+    "WMT":   "Walmart",
+    "PG":    "Procter & Gamble",
+    "KO":    "Coca-Cola",
+    "LIN":   "Linde"
+  },
+
+  "market_etfs": {
+    "SPY": "S&P 500",
+    "QQQ": "Nasdaq 100",
+    "IWM": "Russell 2000"
+  },
+
+  "sector_map": {
+    "AAPL":  "QQQ", "MSFT": "QQQ", "NVDA": "QQQ", "META":  "QQQ",
+    "GOOGL": "QQQ", "AMZN": "QQQ", "CRM":  "QQQ", "ORCL":  "QQQ",
+    "AMD":   "QQQ", "INTC": "QQQ", "QCOM": "QQQ", "PLTR":  "QQQ",
+    "TSLA":  "QQQ", "NFLX": "QQQ",
+    "JPM":   "SPY", "BAC":  "SPY", "GS":   "SPY", "V":     "SPY",
+    "MA":    "SPY", "JNJ":  "SPY", "UNH":  "SPY", "LLY":   "SPY",
+    "ABBV":  "SPY", "MRK":  "SPY", "XOM":  "SPY", "CVX":   "SPY",
+    "CAT":   "SPY", "BA":   "SPY", "HON":  "SPY", "GE":    "SPY",
+    "HD":    "SPY", "NKE":  "SPY", "MCD":  "SPY", "SBUX":  "SPY",
+    "BKNG":  "SPY", "DIS":  "SPY", "WMT":  "SPY", "PG":    "SPY",
+    "KO":    "SPY", "LIN":  "SPY"
+  },
+
+  "weights": {
+    "trend":        0.22,
+    "momentum":     0.20,
+    "volume":       0.13,
+    "sector":       0.10,
+    "fundamentals": 0.20,
+    "risk_penalty": 0.15
+  },
+
+  "selection": {
+    "min_score":  50,
+    "top_n_min":  3,
+    "top_n_max":  6
+  },
+
+  "risk": {
+    "account_size":            10000,
+    "risk_pct_per_trade":      0.01,
+    "max_position_pct":        0.15,
+    "min_risk_reward":         1.5,
+    "max_sector_positions":    2,
+    "breakout_time_exit_days": 5,
+    "pullback_time_exit_days": 3,
+    "reversal_time_exit_days": 7
+  }
+}

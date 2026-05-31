@@ -1,0 +1,39 @@
+name: Daily Pre-Market Stock Scanner
+
+on:
+  schedule:
+    # 5:45 AM PST = 13:45 UTC  (Mon-Fri)
+    - cron: '45 13 * * 1-5'
+  workflow_dispatch:   # allow manual trigger for testing
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily stock scanner
+        env:
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL:         ${{ secrets.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python daily_scan.py
+
+      - name: Save picks cache for EOD workflow
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: picks_cache.json
+          key: picks-cache-${{ runner.os }}-${{ github.run_id }}

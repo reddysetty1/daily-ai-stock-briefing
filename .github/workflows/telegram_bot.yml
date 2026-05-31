@@ -1,0 +1,37 @@
+name: Telegram Bot (polls every 5 min)
+
+on:
+  schedule:
+    # Runs every 5 minutes on weekdays during US market hours
+    # 6:00 AM – 5:00 PM PST = 14:00 – 01:00 UTC
+    # GitHub Actions cron minimum is 5 minutes
+    - cron: "*/5 * * * 1-5"
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  poll-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Poll Telegram and respond
+        env:
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL:       ${{ secrets.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py

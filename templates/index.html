@@ -212,6 +212,18 @@
     .score-bar-val   { width: 30px; text-align: right; font-size: 12px; font-weight: 600; }
 
     /* ── Scanner ──────────────────────────────────────────────────── */
+    .scope-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .scope-btn {
+      padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--muted); cursor: pointer;
+      font-size: 12px; font-weight: 600; transition: all .15s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .scope-btn:hover { border-color: var(--accent); color: var(--text); }
+    .scope-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.1); }
+    .scope-count { font-size: 10px; color: var(--muted); font-weight: 400; }
+    .scope-btn.active .scope-count { color: var(--accent); opacity: .7; }
+
     .scan-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
     .scan-progress {
@@ -350,10 +362,24 @@
   <!-- ══ TAB: SCANNER ═════════════════════════════════════════════ -->
   <div class="tab-content" id="tab-scanner">
     <div class="card">
-      <div class="card-title">Full Market Scanner — {{ universe|length }} Stocks (S&amp;P 500 · NASDAQ · NYSE · Dow)</div>
+      <div class="card-title">Daily Stock Scanner</div>
+
+      <!-- Scope selector -->
+      <div style="margin-bottom:16px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Scan scope</div>
+        <div class="scope-btns" id="scope-btns">
+          <button class="scope-btn active" data-scope="sp500"  onclick="setScope(this)">S&amp;P 500<span class="scope-count">503</span></button>
+          <button class="scope-btn"        data-scope="top"    onclick="setScope(this)">Top Indices<span class="scope-count">~580</span></button>
+          <button class="scope-btn"        data-scope="nasdaq" onclick="setScope(this)">All NASDAQ<span class="scope-count">~4,300</span></button>
+          <button class="scope-btn"        data-scope="nyse"   onclick="setScope(this)">All NYSE<span class="scope-count">~3,100</span></button>
+          <button class="scope-btn"        data-scope="all"    onclick="setScope(this)">All Markets<span class="scope-count">~10,200</span></button>
+        </div>
+        <div id="scope-eta" style="font-size:12px;color:var(--muted);margin-top:6px;">⏱ Estimated time: ~3 min</div>
+      </div>
+
       <div class="scan-controls">
         <button class="btn btn-primary" id="scan-btn" onclick="runScan()">
-          <span id="scan-btn-text">Run Scanner</span>
+          <span id="scan-btn-text">▶ Run Scanner</span>
         </button>
         <label class="tg-toggle">
           <input type="checkbox" id="scan-tg-toggle" checked />
@@ -644,8 +670,25 @@ function renderAnalysis(d) {
   </div>`;
 }
 
+// ── Scope selector ────────────────────────────────────────────────────────────
+const SCOPE_ETA = {
+  sp500:  '~3 min',
+  top:    '~4 min',
+  nasdaq: '~25 min',
+  nyse:   '~20 min',
+  all:    '~60 min',
+};
+let currentScope = 'sp500';
+
+function setScope(el) {
+  document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  currentScope = el.dataset.scope;
+  document.getElementById('scope-eta').textContent = `⏱ Estimated time: ${SCOPE_ETA[currentScope]}`;
+}
+
 // ── Scanner ──────────────────────────────────────────────────────────
-let scanAbort = null;
+let activeES = null;
 
 function runScan() {
   const btn      = document.getElementById('scan-btn');
@@ -658,6 +701,8 @@ function runScan() {
   const status   = document.getElementById('scan-status');
   const sendTg   = document.getElementById('scan-tg-toggle').checked;
 
+  if (activeES) { activeES.close(); activeES = null; }
+
   btn.disabled = true;
   btnText.innerHTML = '<span class="spinner"></span> Scanning…';
   progress.style.display = 'block';
@@ -667,7 +712,10 @@ function runScan() {
   label.textContent = 'Connecting…';
   status.textContent = '';
 
-  const es = new EventSource('/api/scan');
+  // GET endpoint — proxies never buffer GET+SSE
+  const url = `/api/scan?scope=${currentScope}&telegram=${sendTg ? 1 : 0}`;
+  const es = new EventSource(url);
+  activeES = es;
 
   es.onmessage = (e) => {
     const msg = JSON.parse(e.data);
@@ -698,22 +746,25 @@ function runScan() {
       status.textContent = `${msg.picks.length} picks selected`;
       renderPicks(msg.picks, msg.total_scanned);
       btn.disabled = false;
-      btnText.textContent = 'Run Scanner';
-      es.close();
+      btnText.textContent = '▶ Run Scanner';
+      es.close(); activeES = null;
     }
 
     else if (msg.type === 'error') {
-      label.innerHTML = `<span style="color:var(--red)">Error: ${msg.msg}</span>`;
+      label.innerHTML = `<span style="color:var(--red)">⚠ ${msg.msg}</span>`;
       btn.disabled = false;
-      btnText.textContent = 'Run Scanner';
-      es.close();
+      btnText.textContent = '▶ Run Scanner';
+      es.close(); activeES = null;
     }
   };
 
   es.onerror = () => {
-    btn.disabled = false;
-    btnText.textContent = 'Run Scanner';
-    es.close();
+    if (btn.disabled) {   // only reset if scan was running, not if it just finished
+      label.innerHTML = `<span style="color:var(--red)">Connection lost. Try again.</span>`;
+      btn.disabled = false;
+      btnText.textContent = '▶ Run Scanner';
+    }
+    es.close(); activeES = null;
   };
 }
 

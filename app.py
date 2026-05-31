@@ -231,18 +231,35 @@ def api_analyze():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@app.route("/api/scan", methods=["POST"])
+# Scope definitions — filters on the cached universe
+SCOPES = {
+    "sp500":   {"label": "S&P 500",              "filter": lambda v: "S&P 500"    in v["index"]},
+    "top":     {"label": "S&P 500 + NASDAQ 100 + Dow", "filter": lambda v: any(i in v["index"] for i in ("S&P 500","NASDAQ 100","Dow Jones"))},
+    "nasdaq":  {"label": "All NASDAQ",           "filter": lambda v: "NASDAQ"     in v["index"]},
+    "nyse":    {"label": "All NYSE",             "filter": lambda v: "NYSE"        in v["index"]},
+    "all":     {"label": "All Markets",          "filter": lambda v: True},
+}
+
+BATCH_SIZE = 20   # tickers per parallel batch — balances speed vs gevent responsiveness
+
+
+@app.route("/api/scan")          # GET so proxies never buffer it
 @login_required
 def api_scan():
     """
-    Run the full daily scan (all 40 stocks).
-    Streams progress as Server-Sent Events.
+    Stream scan progress as Server-Sent Events (GET endpoint).
+    Query params:
+      scope    = sp500 | top | nasdaq | nyse | all  (default: sp500)
+      telegram = 1 | 0  (default: 1)
     """
+    scope_key = request.args.get("scope", "sp500")
+    send_tg   = request.args.get("telegram", "1") == "1"
+    scope     = SCOPES.get(scope_key, SCOPES["sp500"])
+
     def generate():
         try:
-            import queue, threading
             import yfinance as yf
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from concurrent.futures import ThreadPoolExecutor
             from tech_analysis  import fetch_full_technical
             from fundamentals   import fetch_fundamentals
             from scoring        import score_stock
@@ -253,11 +270,17 @@ def api_scan():
 
             weights  = CONFIG["weights"]
             risk_cfg = CONFIG["risk"]
-            tickers  = list(_universe_full.keys())
-            total    = len(tickers)
+
+            # Filter universe by scope
+            tickers = [t for t, v in _universe_full.items() if scope["filter"](v)]
+            total   = len(tickers)
+
+            def sse(payload: dict) -> str:
+                return f"data: {json.dumps(payload)}\n\n"
 
             # Market context
-            yield f"data: {json.dumps({'type':'status','msg':'Fetching market context…'})}\n\n"
+            yield sse({"type": "status", "msg": f"Scanning {total} stocks ({scope['label']})…"})
+
             market_data = {}
             for etf in ["SPY", "QQQ", "IWM"]:
                 try:
@@ -266,71 +289,69 @@ def api_scan():
                     prev  = float(info.previous_close)
                     chg   = round((price - prev) / prev * 100, 2)
                     market_data[etf] = {"price": price, "day_change_pct": chg}
-                except:
+                except Exception:
                     market_data[etf] = {"price": 0.0, "day_change_pct": 0.0}
 
-            yield f"data: {json.dumps({'type':'market','data':market_data})}\n\n"
-            yield f"data: {json.dumps({'type':'status','msg':f'Scanning {total} stocks in parallel…'})}\n\n"
+            yield sse({"type": "market", "data": market_data})
 
             def score_one(ticker):
-                tech = fetch_full_technical(ticker)
-                fund = fetch_fundamentals(ticker)
+                tech   = fetch_full_technical(ticker)
+                fund   = fetch_fundamentals(ticker)
                 sector = fund.get("sector") or _universe_full.get(ticker, {}).get("sector", "")
-                sm = {ticker: get_sector_etf(sector)}
+                sm     = {ticker: get_sector_etf(sector)}
                 sc, bd = score_stock(ticker, tech, fund, market_data, sm, weights)
                 return {"ticker": ticker, "score": sc, "tech": tech, "fund": fund, "breakdown": bd}
 
-            # Score all stocks with thread pool, stream progress via a queue
-            result_q   = queue.Queue()
-            scored     = []
-            done_count = [0]
+            # Score in fixed batches — yield between batches so gevent can flush the stream
+            scored = []
+            done   = 0
+            for batch_start in range(0, total, BATCH_SIZE):
+                batch = tickers[batch_start: batch_start + BATCH_SIZE]
+                with ThreadPoolExecutor(max_workers=min(BATCH_SIZE, len(batch))) as pool:
+                    results = list(pool.map(score_one, batch, timeout=30))
 
-            def worker(t):
-                try:
-                    r = score_one(t)
-                    result_q.put(("ok", t, r))
-                except Exception as e:
-                    result_q.put(("err", t, str(e)))
-
-            executor = ThreadPoolExecutor(max_workers=12)
-            futs = [executor.submit(worker, t) for t in tickers]
-
-            while done_count[0] < total:
-                try:
-                    kind, ticker, payload = result_q.get(timeout=60)
-                    done_count[0] += 1
-                    i = done_count[0]
-                    if kind == "ok":
-                        scored.append(payload)
-                        yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':round(payload['score'],1),'i':i,'total':total,'trend':payload['tech'].get('trend',''),'rsi':round(payload['tech'].get('rsi',0),1)})}\n\n"
+                for r in results:
+                    done += 1
+                    if r:
+                        scored.append(r)
+                        yield sse({
+                            "type":  "scored",
+                            "ticker": r["ticker"],
+                            "score":  round(r["score"], 1),
+                            "i":     done,
+                            "total": total,
+                            "trend": r["tech"].get("trend", ""),
+                            "rsi":   round(r["tech"].get("rsi", 0), 1),
+                        })
                     else:
-                        yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':0,'i':i,'total':total,'error':payload})}\n\n"
-                except Exception:
-                    break
-            executor.shutdown(wait=False)
+                        yield sse({"type": "scored", "ticker": "?", "score": 0, "i": done, "total": total})
 
+                time.sleep(0)   # yield to gevent event loop — flushes buffered SSE events
+
+            # Pick selection
             scored.sort(key=lambda x: x["score"], reverse=True)
+            sel       = CONFIG["selection"]
+            eligible  = [s for s in scored if s["score"] >= sel["min_score"]]
+            picks_raw = eligible[: sel["top_n_max"]] or scored[: sel["top_n_min"]]
 
-            sel     = CONFIG["selection"]
-            eligible = [s for s in scored if s["score"] >= sel["min_score"]]
-            picks_raw = eligible[:sel["top_n_max"]] or scored[:sel["top_n_min"]]
+            yield sse({"type": "status", "msg": f"Building trade plans for {len(picks_raw)} picks…"})
 
-            yield f"data: {json.dumps({'type':'status','msg':f'Building trade plans for {len(picks_raw)} picks…'})}\n\n"
-
-            picks = []
+            picks  = []
             client = _gemini_client()
             for item in picks_raw:
-                ticker = item["ticker"]
+                ticker    = item["ticker"]
                 tech, fund = item["tech"], item["fund"]
-                setup = detect_setup(tech)
-                ep    = generate_entry_plan(tech, setup)
-                ex    = generate_exit_plan(tech, ep, setup, risk_cfg)
-                pos   = calculate_position_size(
+                setup     = detect_setup(tech)
+                ep        = generate_entry_plan(tech, setup)
+                ex        = generate_exit_plan(tech, ep, setup, risk_cfg)
+                pos       = calculate_position_size(
                     ep.get("entry_low") or tech["current_price"],
                     ex["stop"], risk_cfg["account_size"],
-                    risk_cfg["risk_pct_per_trade"], risk_cfg["max_position_pct"]
+                    risk_cfg["risk_pct_per_trade"], risk_cfg["max_position_pct"],
                 )
-                quality, flags = assess_setup_quality(ex["rr1"], ex["rr2"], risk_cfg["min_risk_reward"], setup, tech)
+                quality, flags = assess_setup_quality(
+                    ex["rr1"], ex["rr2"], risk_cfg["min_risk_reward"], setup, tech
+                )
                 narrative = ""
                 if client:
                     try:
@@ -338,15 +359,15 @@ def api_scan():
                         prompt = (
                             f"2-3 sentence trade rationale for {ticker}. "
                             f"Setup:{setup} Trend:{tech.get('trend')} RSI:{tech.get('rsi')} "
-                            f"Entry:${ep.get('entry_low')} Stop:${ex['stop']} T1:${ex['t1']} RR:{ex['rr1']}. "
-                            f"Under 60 words plain text."
+                            f"Entry:${ep.get('entry_low')} Stop:${ex['stop']} "
+                            f"T1:${ex['t1']} RR:{ex['rr1']}. Under 60 words plain text."
                         )
                         resp = client.models.generate_content(
                             model=GEMINI_MODEL, contents=prompt,
-                            config=__import__('google.genai',fromlist=['types']).types.GenerateContentConfig(temperature=0.4, max_output_tokens=120)
+                            config=types.GenerateContentConfig(temperature=0.4, max_output_tokens=120),
                         )
                         narrative = resp.text.strip()
-                    except:
+                    except Exception:
                         pass
 
                 picks.append({
@@ -356,45 +377,51 @@ def api_scan():
                     "entry": {"entry_plan": ep, "exit_plan": ex, "position": pos},
                 })
 
-            # Send to Telegram
-            if TG_TOKEN and TG_CHAT_ID:
-                yield f"data: {json.dumps({'type':'status','msg':'Sending to Telegram…'})}\n\n"
-                summary = format_ranked_summary(picks, market_data, total)
-                send_messages(TG_TOKEN, TG_CHAT_ID, summary)
+            # Telegram
+            if send_tg and TG_TOKEN and TG_CHAT_ID:
+                yield sse({"type": "status", "msg": "Sending to Telegram…"})
+                send_messages(TG_TOKEN, TG_CHAT_ID,
+                              format_ranked_summary(picks, market_data, total))
                 for p in picks:
-                    msg = format_stock_detail(p, risk_cfg["account_size"])
-                    send_messages(TG_TOKEN, TG_CHAT_ID, msg)
+                    send_messages(TG_TOKEN, TG_CHAT_ID,
+                                  format_stock_detail(p, risk_cfg["account_size"]))
 
-            # Final result
+            # Done — send final picks to UI
             result_picks = []
             for p in picks:
-                ep2 = p["entry"]["entry_plan"]
-                ex2 = p["entry"]["exit_plan"]
+                ep2, ex2 = p["entry"]["entry_plan"], p["entry"]["exit_plan"]
                 result_picks.append({
-                    "ticker":    p["ticker"],
-                    "name":      p["fund"].get("name", p["ticker"]),
-                    "score":     round(p["score"], 1),
-                    "setup":     p["setup"],
-                    "quality":   p["quality"],
-                    "narrative": p["narrative"],
-                    "price":     p["tech"]["current_price"],
-                    "change":    p["tech"]["day_change_pct"],
-                    "entry_low": ep2.get("entry_low"),
-                    "entry_high":ep2.get("entry_high"),
-                    "stop":      ex2["stop"],
-                    "t1":        ex2["t1"],
-                    "t2":        ex2["t2"],
-                    "rr1":       ex2["rr1"],
-                    "flags":     p["flags"],
+                    "ticker":     p["ticker"],
+                    "name":       p["fund"].get("name", p["ticker"]),
+                    "score":      round(p["score"], 1),
+                    "setup":      p["setup"],
+                    "quality":    p["quality"],
+                    "narrative":  p["narrative"],
+                    "price":      p["tech"]["current_price"],
+                    "change":     p["tech"]["day_change_pct"],
+                    "entry_low":  ep2.get("entry_low"),
+                    "entry_high": ep2.get("entry_high"),
+                    "stop":       ex2["stop"],
+                    "t1":         ex2["t1"],
+                    "t2":         ex2["t2"],
+                    "rr1":        ex2["rr1"],
+                    "flags":      p["flags"],
                 })
 
-            yield f"data: {json.dumps({'type':'done','picks':result_picks,'total_scanned':total})}\n\n"
+            yield sse({"type": "done", "picks": result_picks, "total_scanned": total})
 
         except Exception as e:
             yield f"data: {json.dumps({'type':'error','msg':str(e)})}\n\n"
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )
 
 
 if __name__ == "__main__":

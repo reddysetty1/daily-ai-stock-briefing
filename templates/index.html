@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stock Analysis Dashboard</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2330;
+      --border:    #30363d;
+      --accent:    #58a6ff;
+      --accent2:   #3fb950;
+      --warn:      #f0883e;
+      --danger:    #f85149;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --gold:      #d29922;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-brand {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 16px; font-weight: 700; letter-spacing: -0.3px;
+    }
+    .topbar-brand span { color: var(--accent); }
+    .topbar-market { display: flex; gap: 20px; }
+    .market-item { display: flex; flex-direction: column; align-items: flex-end; }
+    .market-item .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .market-item .val   { font-size: 13px; font-weight: 600; }
+
+    .main { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+
+    /* ── Tabs ─────────────────────────────────────────────────────── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; }
+    .tab-btn {
+      padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); cursor: pointer;
+      font-size: 13px; font-weight: 500; transition: all .15s;
+    }
+    .tab-btn:hover { color: var(--text); border-color: var(--accent); }
+    .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Cards ────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--muted); margin-bottom: 14px;
+    }
+
+    /* ── Analyzer ─────────────────────────────────────────────────── */
+    .search-box {
+      display: flex; gap: 10px; position: relative;
+    }
+    .ticker-input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; color: var(--text);
+      font-size: 20px; font-weight: 700; letter-spacing: 2px;
+      text-transform: uppercase; outline: none; transition: border .15s;
+      max-width: 220px;
+    }
+    .ticker-input::placeholder { font-size: 14px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+    .ticker-input:focus { border-color: var(--accent); }
+
+    .autocomplete-list {
+      position: absolute; top: 100%; left: 0; width: 300px; max-height: 220px;
+      overflow-y: auto; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; z-index: 50; margin-top: 4px; display: none;
+    }
+    .autocomplete-list.show { display: block; }
+    .ac-item {
+      padding: 9px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center;
+    }
+    .ac-item:hover, .ac-item.focused { background: var(--surface); }
+    .ac-ticker { font-weight: 700; font-size: 13px; color: var(--accent); width: 50px; }
+    .ac-name   { color: var(--muted); font-size: 12px; }
+
+    .btn {
+      padding: 12px 22px; border-radius: 8px; border: none;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #79b8ff; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:hover { background: #56d364; }
+    .btn-outline {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+    .tg-toggle {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      color: var(--muted); font-size: 13px;
+    }
+    .tg-toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+    .tg-toggle:hover { color: var(--text); }
+
+    /* ── Result Panel ─────────────────────────────────────────────── */
+    #analyze-result { margin-top: 20px; }
+
+    .result-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+    }
+    .result-name h2 { font-size: 22px; font-weight: 700; }
+    .result-name .subtitle { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .score-badge {
+      display: flex; flex-direction: column; align-items: center;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 18px;
+    }
+    .score-badge .score-num { font-size: 28px; font-weight: 800; }
+    .score-badge .score-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tag {
+      padding: 4px 10px; border-radius: 20px; font-size: 11px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .tag-breakout  { background: rgba(88,166,255,.15); color: var(--accent); border: 1px solid rgba(88,166,255,.3); }
+    .tag-pullback  { background: rgba(63,185,80,.15);  color: var(--green);  border: 1px solid rgba(63,185,80,.3); }
+    .tag-reversal  { background: rgba(240,136,62,.15); color: var(--warn);   border: 1px solid rgba(240,136,62,.3); }
+    .tag-wait      { background: rgba(139,148,158,.15);color: var(--muted);  border: 1px solid rgba(139,148,158,.3); }
+    .tag-good      { background: rgba(63,185,80,.15);  color: var(--green);  border: 1px solid rgba(63,185,80,.3); }
+    .tag-marginal  { background: rgba(210,153,34,.15); color: var(--gold);   border: 1px solid rgba(210,153,34,.3); }
+    .tag-poor      { background: rgba(248,81,73,.15);  color: var(--red);    border: 1px solid rgba(248,81,73,.3); }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+    .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row .key   { color: var(--muted); }
+    .stat-row .val   { font-weight: 600; }
+
+    .trade-plan-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+    }
+    @media (max-width: 700px) { .trade-plan-grid { grid-template-columns: 1fr 1fr; } }
+
+    .trade-stat {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; text-align: center;
+    }
+    .trade-stat .ts-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .trade-stat .ts-val   { font-size: 18px; font-weight: 700; }
+    .trade-stat.entry     { border-color: rgba(88,166,255,.4); }
+    .trade-stat.stop      { border-color: rgba(248,81,73,.4); }
+    .trade-stat.target    { border-color: rgba(63,185,80,.4); }
+    .trade-stat.rr        { border-color: rgba(210,153,34,.4); }
+
+    .narrative-box {
+      background: var(--surface2); border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0; padding: 12px 16px;
+      color: var(--text); font-style: italic; line-height: 1.6;
+      margin-top: 12px;
+    }
+
+    .flag-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 7px 0; border-bottom: 1px solid var(--border);
+      color: var(--warn); font-size: 13px;
+    }
+    .flag-item:last-child { border-bottom: none; }
+
+    .score-bar-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+    }
+    .score-bar-label { width: 80px; color: var(--muted); font-size: 12px; }
+    .score-bar-track { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .score-bar-fill  { height: 100%; border-radius: 3px; background: var(--accent); transition: width .5s ease; }
+    .score-bar-val   { width: 30px; text-align: right; font-size: 12px; font-weight: 600; }
+
+    /* ── Scanner ──────────────────────────────────────────────────── */
+    .scan-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .scan-progress {
+      display: none; margin-top: 16px;
+    }
+    .progress-track {
+      height: 4px; background: var(--surface2); border-radius: 2px;
+      overflow: hidden; margin-bottom: 8px;
+    }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .2s; }
+    .progress-label { font-size: 12px; color: var(--muted); }
+
+    .scan-ticker-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 6px; margin-top: 12px; max-height: 160px; overflow-y: auto;
+    }
+    .sticker {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 8px; font-size: 11px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .sticker .st-name { font-weight: 700; color: var(--accent); }
+    .sticker .st-score { color: var(--muted); }
+    .sticker.processing { border-color: var(--accent); animation: pulse .8s infinite alternate; }
+
+    @keyframes pulse { from { opacity: .6; } to { opacity: 1; } }
+
+    .picks-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px; margin-top: 20px;
+    }
+    .pick-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; cursor: pointer;
+      transition: border-color .15s, transform .1s;
+    }
+    .pick-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .pick-card .pc-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .pick-card .pc-ticker { font-size: 18px; font-weight: 800; }
+    .pick-card .pc-score  { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .pick-card .pc-name   { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+    .pick-card .pc-price  { font-size: 16px; font-weight: 600; }
+    .pc-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 10px; }
+    .pc-stat  { font-size: 12px; color: var(--muted); }
+    .pc-stat span { color: var(--text); font-weight: 600; }
+
+    /* ── Loading spinner ──────────────────────────────────────────── */
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .6s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Utils ────────────────────────────────────────────────────── */
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral  { color: var(--muted); }
+    .hidden   { display: none !important; }
+    .mt-12    { margin-top: 12px; }
+    .mt-20    { margin-top: 20px; }
+    .tg-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(63,185,80,.15); border: 1px solid rgba(63,185,80,.3);
+      color: var(--green); font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 20px;
+    }
+    .err-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.3);
+      color: var(--red); font-size: 12px; padding: 8px 14px; border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Top Bar ─────────────────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="topbar-brand">
+    📊 <span>Market</span>Desk
+  </div>
+  <div class="topbar-market" id="market-bar">
+    <div class="market-item">
+      <span class="label">SPY</span>
+      <span class="val" id="spy-val">—</span>
+    </div>
+    <div class="market-item">
+      <span class="label">QQQ</span>
+      <span class="val" id="qqq-val">—</span>
+    </div>
+    <div class="market-item">
+      <span class="label">IWM</span>
+      <span class="val" id="iwm-val">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<div class="main">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('analyzer')">🔍 Analyzer</button>
+    <button class="tab-btn" onclick="switchTab('scanner')">📈 Daily Scanner</button>
+  </div>
+
+  <!-- ══ TAB: ANALYZER ════════════════════════════════════════════ -->
+  <div class="tab-content active" id="tab-analyzer">
+    <div class="card">
+      <div class="card-title">Single Stock Analysis</div>
+      <div class="search-box">
+        <div style="position:relative; flex:0 0 auto;">
+          <input id="ticker-input" class="ticker-input" type="text"
+                 placeholder="Enter ticker…" maxlength="5"
+                 autocomplete="off" spellcheck="false"
+                 oninput="onTickerInput(this.value)"
+                 onkeydown="onTickerKey(event)" />
+          <div class="autocomplete-list" id="ac-list"></div>
+        </div>
+        <button class="btn btn-primary" id="analyze-btn" onclick="runAnalysis()">
+          <span id="analyze-btn-text">Analyze</span>
+        </button>
+        <label class="tg-toggle">
+          <input type="checkbox" id="tg-toggle" checked />
+          Send to Telegram
+        </label>
+      </div>
+    </div>
+
+    <div id="analyze-result" class="hidden"></div>
+  </div>
+
+  <!-- ══ TAB: SCANNER ═════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-scanner">
+    <div class="card">
+      <div class="card-title">Full Market Scanner — 40 Stocks</div>
+      <div class="scan-controls">
+        <button class="btn btn-primary" id="scan-btn" onclick="runScan()">
+          <span id="scan-btn-text">Run Scanner</span>
+        </button>
+        <label class="tg-toggle">
+          <input type="checkbox" id="scan-tg-toggle" checked />
+          Send results to Telegram
+        </label>
+        <span id="scan-status" class="neutral" style="font-size:13px;"></span>
+      </div>
+
+      <div class="scan-progress" id="scan-progress">
+        <div class="progress-track" style="margin-top:16px;">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <div class="progress-label" id="progress-label">Starting…</div>
+        <div class="scan-ticker-grid" id="scan-ticker-grid"></div>
+      </div>
+    </div>
+
+    <div id="scan-results" class="hidden">
+      <div class="card">
+        <div class="card-title" id="scan-result-title">Top Picks</div>
+        <div class="picks-grid" id="picks-grid"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+
+<script>
+// ── Universe for autocomplete ──────────────────────────────────────
+const UNIVERSE = {{ universe | tojson }};
+const TICKERS  = Object.keys(UNIVERSE);
+
+// ── Tabs ────────────────────────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ── Market bar ──────────────────────────────────────────────────────
+async function loadMarket() {
+  try {
+    const r = await fetch('/api/market');
+    const d = await r.json();
+    if (!d.ok) return;
+    ['SPY','QQQ','IWM'].forEach(sym => {
+      const el = document.getElementById(sym.toLowerCase() + '-val');
+      if (!el) return;
+      const {price, change} = d.data[sym];
+      const cls = change >= 0 ? 'positive' : 'negative';
+      const sign = change >= 0 ? '+' : '';
+      el.innerHTML = `<span class="${cls}">$${price} <small>${sign}${change}%</small></span>`;
+    });
+  } catch(e) {}
+}
+loadMarket();
+setInterval(loadMarket, 60000);
+
+// ── Autocomplete ────────────────────────────────────────────────────
+let acIndex = -1;
+function onTickerInput(val) {
+  const q = val.trim().toUpperCase();
+  const list = document.getElementById('ac-list');
+  acIndex = -1;
+  if (!q) { list.classList.remove('show'); return; }
+  const matches = TICKERS.filter(t => t.startsWith(q) || UNIVERSE[t].toUpperCase().includes(q)).slice(0, 8);
+  if (!matches.length) { list.classList.remove('show'); return; }
+  list.innerHTML = matches.map((t, i) =>
+    `<div class="ac-item" data-ticker="${t}" onmousedown="selectTicker('${t}')">
+       <span class="ac-ticker">${t}</span>
+       <span class="ac-name">${UNIVERSE[t]}</span>
+     </div>`).join('');
+  list.classList.add('show');
+}
+
+function onTickerKey(e) {
+  const list = document.getElementById('ac-list');
+  const items = list.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') { acIndex = Math.min(acIndex+1, items.length-1); highlightAC(items); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { acIndex = Math.max(acIndex-1, 0); highlightAC(items); e.preventDefault(); }
+  else if (e.key === 'Enter') {
+    if (acIndex >= 0 && items[acIndex]) selectTicker(items[acIndex].dataset.ticker);
+    else runAnalysis();
+  } else if (e.key === 'Escape') { list.classList.remove('show'); }
+}
+
+function highlightAC(items) {
+  items.forEach((el, i) => el.classList.toggle('focused', i === acIndex));
+  if (items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'});
+}
+
+function selectTicker(t) {
+  document.getElementById('ticker-input').value = t;
+  document.getElementById('ac-list').classList.remove('show');
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-box')) document.getElementById('ac-list').classList.remove('show');
+});
+
+// ── Analyze ─────────────────────────────────────────────────────────
+async function runAnalysis() {
+  const ticker  = document.getElementById('ticker-input').value.trim().toUpperCase();
+  const sendTg  = document.getElementById('tg-toggle').checked;
+  const btn     = document.getElementById('analyze-btn');
+  const btnText = document.getElementById('analyze-btn-text');
+  const result  = document.getElementById('analyze-result');
+
+  if (!ticker) { document.getElementById('ticker-input').focus(); return; }
+
+  document.getElementById('ac-list').classList.remove('show');
+  btn.disabled = true;
+  btnText.innerHTML = '<span class="spinner"></span>';
+  result.classList.add('hidden');
+  result.innerHTML = '';
+
+  try {
+    const r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ticker, send_telegram: sendTg})
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    result.innerHTML = renderAnalysis(d);
+    result.classList.remove('hidden');
+    result.scrollIntoView({behavior:'smooth', block:'start'});
+  } catch(e) {
+    result.innerHTML = `<div class="err-badge">⚠️ ${e.message}</div>`;
+    result.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = 'Analyze';
+  }
+}
+
+function renderAnalysis(d) {
+  const t = d.tech;
+  const f = d.fund;
+  const ep = d.entry_plan;
+  const ex = d.exit_plan;
+  const pos = d.position;
+  const bd = d.breakdown;
+
+  const pct = (v) => v != null ? (v*100).toFixed(0)+'%' : '—';
+  const dlr = (v) => v != null ? '$'+v : '—';
+  const chgClass = t.change >= 0 ? 'positive' : 'negative';
+  const chgSign  = t.change >= 0 ? '+' : '';
+
+  const scoreColor = d.score >= 65 ? 'var(--green)' : d.score >= 50 ? 'var(--gold)' : 'var(--red)';
+
+  const macdLabel = t.macd_bullish ? '<span class="positive">Bullish ▲</span>' : '<span class="negative">Bearish ▼</span>';
+  const volLabel  = t.vol_pct >= 0
+    ? `<span class="positive">+${t.vol_pct.toFixed(0)}% above avg</span>`
+    : `<span class="negative">${t.vol_pct.toFixed(0)}% below avg</span>`;
+
+  const setupTag  = `<span class="tag tag-${d.setup}">${d.setup.toUpperCase()}</span>`;
+  const qualTag   = `<span class="tag tag-${d.quality}">${d.quality.toUpperCase()}</span>`;
+
+  const tgBadge = d.tg_sent
+    ? `<span class="tg-badge">✓ Sent to Telegram</span>` : '';
+
+  // Score bars
+  const bars = ['trend','momentum','volume','sector','fundamental'].map(k => {
+    const v = bd[k] || 0;
+    return `<div class="score-bar-row">
+      <span class="score-bar-label">${k.charAt(0).toUpperCase()+k.slice(1)}</span>
+      <div class="score-bar-track"><div class="score-bar-fill" style="width:${v}%"></div></div>
+      <span class="score-bar-val">${Math.round(v)}</span>
+    </div>`;
+  }).join('');
+
+  const flags = d.flags.length
+    ? d.flags.map(f => `<div class="flag-item">⚠️ ${f}</div>`).join('')
+    : `<div style="color:var(--green);font-size:13px;">✓ No warnings</div>`;
+
+  const narrative = d.narrative
+    ? `<div class="narrative-box">💬 ${d.narrative}</div>` : '';
+
+  const rrColor = ex.rr1 >= 3 ? 'var(--green)' : ex.rr1 >= 2 ? 'var(--gold)' : 'var(--red)';
+
+  return `
+  <div class="card">
+    <div class="result-header">
+      <div class="result-name">
+        <h2>${d.ticker} <span style="color:var(--muted);font-size:15px;font-weight:400">${d.name}</span></h2>
+        <div class="subtitle">${f.sector || '—'} · ${f.recommendation ? f.recommendation.replace('_',' ').toUpperCase() : '—'}</div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+        <div class="score-badge">
+          <span class="score-num" style="color:${scoreColor}">${Math.round(d.score)}</span>
+          <span class="score-lbl">Score</span>
+        </div>
+        ${tgBadge}
+      </div>
+    </div>
+
+    <div class="tags">${setupTag} ${qualTag}</div>
+
+    ${narrative}
+
+    <!-- Price + Technicals -->
+    <div class="grid-2 mt-20">
+      <div>
+        <div class="card-title">Price</div>
+        <div style="font-size:28px;font-weight:800;margin-bottom:8px;">
+          $${t.price} <span class="tag ${chgClass}" style="font-size:14px;">${chgSign}${t.change}%</span>
+        </div>
+        <div class="stat-row"><span class="key">52W Range</span><span class="val">$${t.week52_low} — $${t.week52_high}</span></div>
+        <div class="stat-row"><span class="key">ATR (14)</span><span class="val">$${t.atr14}</span></div>
+        <div class="stat-row"><span class="key">MA 50 / 200</span><span class="val">$${t.ma50} / $${t.ma200}</span></div>
+        <div class="stat-row"><span class="key">Attractiveness</span><span class="val">${t.attractiveness}</span></div>
+      </div>
+      <div>
+        <div class="card-title">Technicals</div>
+        <div class="stat-row"><span class="key">Trend</span><span class="val">${t.trend}</span></div>
+        <div class="stat-row"><span class="key">RSI (14)</span><span class="val">${t.rsi}</span></div>
+        <div class="stat-row"><span class="key">MACD</span><span class="val">${macdLabel}</span></div>
+        <div class="stat-row"><span class="key">Volume</span><span class="val">${volLabel}</span></div>
+        <div class="stat-row"><span class="key">Vol Trend</span><span class="val">${t.vol_trend}</span></div>
+      </div>
+    </div>
+
+    <!-- Trade Plan -->
+    <div class="card-title mt-20">Trade Plan</div>
+    <div class="trade-plan-grid">
+      <div class="trade-stat entry">
+        <div class="ts-label">Entry Zone</div>
+        <div class="ts-val" style="color:var(--accent);font-size:14px;">
+          ${ep.entry_low ? '$'+ep.entry_low+' – $'+ep.entry_high : 'Watch'}
+        </div>
+      </div>
+      <div class="trade-stat stop">
+        <div class="ts-label">Stop Loss</div>
+        <div class="ts-val" style="color:var(--red);">$${ex.stop}</div>
+      </div>
+      <div class="trade-stat target">
+        <div class="ts-label">Target 1 / 2</div>
+        <div class="ts-val" style="color:var(--green);font-size:14px;">$${ex.t1} / $${ex.t2}</div>
+      </div>
+      <div class="trade-stat rr">
+        <div class="ts-label">Risk : Reward</div>
+        <div class="ts-val" style="color:${rrColor};">${ex.rr1}:1</div>
+      </div>
+    </div>
+    ${ep.entry_low ? `
+    <div class="stat-row"><span class="key">Confirmation</span><span class="val" style="max-width:60%;text-align:right;">${ep.confirmation}</span></div>
+    <div class="stat-row"><span class="key">Trailing Stop</span><span class="val">${ex.trailing_rule}</span></div>
+    <div class="stat-row"><span class="key">Time Exit</span><span class="val">If no move by Day ${ex.time_exit_days}</span></div>
+    <div class="stat-row"><span class="key">Invalidation</span><span class="val" style="color:var(--red)">${ep.invalidation}</span></div>
+    ` : ''}
+
+    <!-- Position + Fundamentals -->
+    <div class="grid-2 mt-20">
+      <div>
+        <div class="card-title">Position Size</div>
+        ${pos.shares > 0 ? `
+        <div class="stat-row"><span class="key">Shares</span><span class="val">${pos.shares}</span></div>
+        <div class="stat-row"><span class="key">Value</span><span class="val">$${pos.position_value.toLocaleString()}</span></div>
+        <div class="stat-row"><span class="key">% of Account</span><span class="val">${pos.position_pct}%</span></div>
+        <div class="stat-row"><span class="key">Risk $</span><span class="val" style="color:var(--red)">$${pos.risk_dollars}</span></div>
+        ` : '<div style="color:var(--muted)">No clean entry — no position</div>'}
+      </div>
+      <div>
+        <div class="card-title">Fundamentals</div>
+        <div class="stat-row"><span class="key">Revenue Growth</span><span class="val">${pct(f.revenue_growth)}</span></div>
+        <div class="stat-row"><span class="key">EPS Growth</span><span class="val">${pct(f.earnings_growth)}</span></div>
+        <div class="stat-row"><span class="key">Gross Margin</span><span class="val">${pct(f.gross_margin)}</span></div>
+        <div class="stat-row"><span class="key">P/E</span><span class="val">${f.trailing_pe ? f.trailing_pe.toFixed(0)+'x' : '—'}</span></div>
+        <div class="stat-row"><span class="key">Beta</span><span class="val">${f.beta ? f.beta.toFixed(2) : '—'}</span></div>
+      </div>
+    </div>
+
+    <!-- Score Breakdown -->
+    <div class="card-title mt-20">Score Breakdown</div>
+    ${bars}
+    <div class="score-bar-row" style="margin-top:6px;">
+      <span class="score-bar-label" style="color:var(--red)">Risk Pen.</span>
+      <div class="score-bar-track"><div class="score-bar-fill" style="width:${bd.risk_penalty||0}%;background:var(--red)"></div></div>
+      <span class="score-bar-val" style="color:var(--red)">-${Math.round(bd.risk_penalty||0)}</span>
+    </div>
+
+    <!-- Flags -->
+    <div class="card-title mt-20">Warnings</div>
+    ${flags}
+  </div>`;
+}
+
+// ── Scanner ──────────────────────────────────────────────────────────
+let scanAbort = null;
+
+function runScan() {
+  const btn      = document.getElementById('scan-btn');
+  const btnText  = document.getElementById('scan-btn-text');
+  const progress = document.getElementById('scan-progress');
+  const fill     = document.getElementById('progress-fill');
+  const label    = document.getElementById('progress-label');
+  const grid     = document.getElementById('scan-ticker-grid');
+  const results  = document.getElementById('scan-results');
+  const status   = document.getElementById('scan-status');
+  const sendTg   = document.getElementById('scan-tg-toggle').checked;
+
+  btn.disabled = true;
+  btnText.innerHTML = '<span class="spinner"></span> Scanning…';
+  progress.style.display = 'block';
+  results.classList.add('hidden');
+  grid.innerHTML = '';
+  fill.style.width = '0%';
+  label.textContent = 'Connecting…';
+  status.textContent = '';
+
+  const es = new EventSource('/api/scan');
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === 'status') {
+      label.textContent = msg.msg;
+    }
+
+    else if (msg.type === 'progress') {
+      const pct = Math.round(msg.i / msg.total * 100);
+      fill.style.width = pct + '%';
+      label.textContent = `Scanning ${msg.ticker}… (${msg.i}/${msg.total})`;
+      // Add placeholder chip
+      const chip = document.createElement('div');
+      chip.className = 'sticker processing';
+      chip.id = 'chip-' + msg.ticker;
+      chip.innerHTML = `<span class="st-name">${msg.ticker}</span><span class="st-score">…</span>`;
+      grid.appendChild(chip);
+      chip.scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+
+    else if (msg.type === 'scored') {
+      const chip = document.getElementById('chip-' + msg.ticker);
+      if (chip) {
+        chip.classList.remove('processing');
+        chip.querySelector('.st-score').textContent = msg.score;
+        if (msg.score >= 60) chip.style.borderColor = 'var(--green)';
+        else if (msg.error) chip.style.borderColor = 'var(--red)';
+      }
+    }
+
+    else if (msg.type === 'done') {
+      fill.style.width = '100%';
+      label.textContent = `Done! Scanned ${msg.total_scanned} stocks.`;
+      status.textContent = `${msg.picks.length} picks selected`;
+      renderPicks(msg.picks, msg.total_scanned);
+      btn.disabled = false;
+      btnText.textContent = 'Run Scanner';
+      es.close();
+    }
+
+    else if (msg.type === 'error') {
+      label.innerHTML = `<span style="color:var(--red)">Error: ${msg.msg}</span>`;
+      btn.disabled = false;
+      btnText.textContent = 'Run Scanner';
+      es.close();
+    }
+  };
+
+  es.onerror = () => {
+    btn.disabled = false;
+    btnText.textContent = 'Run Scanner';
+    es.close();
+  };
+}
+
+function renderPicks(picks, total) {
+  const grid    = document.getElementById('picks-grid');
+  const results = document.getElementById('scan-results');
+  const title   = document.getElementById('scan-result-title');
+  title.textContent = `Top ${picks.length} Picks — Scanned ${total} stocks`;
+  grid.innerHTML = picks.map(p => {
+    const chgClass = p.change >= 0 ? 'positive' : 'negative';
+    const chgSign  = p.change >= 0 ? '+' : '';
+    const rrColor  = p.rr1 >= 3 ? 'var(--green)' : p.rr1 >= 2 ? 'var(--gold)' : 'var(--red)';
+    const scoreColor = p.score >= 65 ? 'var(--green)' : p.score >= 50 ? 'var(--gold)' : 'var(--red)';
+    return `
+    <div class="pick-card" onclick="loadPickIntoAnalyzer('${p.ticker}')">
+      <div class="pc-header">
+        <span class="pc-ticker">${p.ticker}</span>
+        <span class="pc-score" style="color:${scoreColor}">${p.score}</span>
+      </div>
+      <div class="pc-name">${p.name}</div>
+      <div class="pc-price">$${p.price} <span class="${chgClass}" style="font-size:13px;">${chgSign}${p.change}%</span></div>
+      <div class="tags mt-12">
+        <span class="tag tag-${p.setup}">${p.setup.toUpperCase()}</span>
+        <span class="tag tag-${p.quality}">${p.quality.toUpperCase()}</span>
+      </div>
+      <div class="pc-stats">
+        <div class="pc-stat">Entry <span>${p.entry_low ? '$'+p.entry_low : 'Watch'}</span></div>
+        <div class="pc-stat">Stop <span style="color:var(--red)">$${p.stop}</span></div>
+        <div class="pc-stat">T1 <span style="color:var(--green)">$${p.t1}</span></div>
+        <div class="pc-stat">R:R <span style="color:${rrColor}">${p.rr1}:1</span></div>
+      </div>
+      ${p.narrative ? `<div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.5;font-style:italic;">${p.narrative}</div>` : ''}
+    </div>`;
+  }).join('');
+  results.classList.remove('hidden');
+  results.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function loadPickIntoAnalyzer(ticker) {
+  switchTab('analyzer');
+  document.querySelectorAll('.tab-btn')[0].classList.add('active');
+  document.querySelectorAll('.tab-btn')[1].classList.remove('active');
+  document.getElementById('ticker-input').value = ticker;
+  runAnalysis();
+}
+</script>
+</body>
+</html>

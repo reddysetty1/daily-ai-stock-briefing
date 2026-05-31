@@ -2,9 +2,9 @@
 daily_scan.py — Pre-market stock selection and trade planning pipeline.
 
 Flow:
-  1. Load config.json
+  1. Load dynamic universe (S&P 500 + NASDAQ 100 + Dow Jones)
   2. Fetch SPY/QQQ/IWM market context
-  3. Score all universe stocks (tech + fundamentals)
+  3. Score all universe stocks in parallel (tech + fundamentals)
   4. Select top N picks above min_score
   5. Generate entry/exit plans + position sizes for each pick
   6. Call Gemini for a short narrative per pick
@@ -16,6 +16,7 @@ import sys
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -40,13 +41,15 @@ from signals        import detect_setup, generate_entry_plan, generate_exit_plan
 from risk           import calculate_position_size, assess_setup_quality
 from formatter      import format_ranked_summary, format_stock_detail
 from telegram_utils import send_messages
+from universe       import get_universe, get_sector_etf
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH  = os.path.join(os.path.dirname(__file__), "config.json")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
 TG_TOKEN     = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+MAX_WORKERS  = 10   # parallel yfinance threads
 
 
 def load_config() -> dict:
@@ -114,42 +117,57 @@ def fetch_narrative(client, ticker: str, tech: dict, fund: dict,
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
-def run_scan():
-    cfg        = load_config()
-    universe   = cfg["universe"]          # {ticker: name}
-    sector_map = cfg["sector_map"]        # {ticker: ETF}
-    weights    = cfg["weights"]
-    sel_cfg    = cfg["selection"]
-    risk_cfg   = cfg["risk"]
+def _score_one(ticker: str, universe_info: dict, market_data: dict,
+               weights: dict) -> dict | None:
+    """Score a single ticker — runs in a thread pool worker."""
+    try:
+        tech = fetch_full_technical(ticker)
+        fund = fetch_fundamentals(ticker)
+        # Dynamic sector → ETF mapping (no hardcoded sector_map needed)
+        sector = fund.get("sector") or universe_info.get("sector", "")
+        sector_map = {ticker: get_sector_etf(sector)}
+        final_score, breakdown = score_stock(ticker, tech, fund, market_data, sector_map, weights)
+        return {"ticker": ticker, "score": final_score, "tech": tech, "fund": fund, "breakdown": breakdown}
+    except Exception as e:
+        log.warning("  %-6s  FAILED: %s", ticker, e)
+        return None
 
-    etf_list   = list(cfg["market_etfs"].keys())   # [SPY, QQQ, IWM]
+
+def run_scan():
+    cfg      = load_config()
+    weights  = cfg["weights"]
+    sel_cfg  = cfg["selection"]
+    risk_cfg = cfg["risk"]
+
+    # Dynamic universe — S&P 500 + NASDAQ 100 + Dow Jones
+    universe = get_universe()
+    tickers  = list(universe.keys())
+
+    etf_list    = ["SPY", "QQQ", "IWM"]
     market_data = fetch_market_context(etf_list)
 
     gemini_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-    # ── Step 1: Score every stock ─────────────────────────────────────────────
+    # ── Step 1: Score every stock in parallel ─────────────────────────────────
     scored = []
-    tickers = list(universe.keys())
-    log.info("Scanning %d stocks …", len(tickers))
+    log.info("Scanning %d stocks with %d workers …", len(tickers), MAX_WORKERS)
 
-    for ticker in tickers:
-        try:
-            tech = fetch_full_technical(ticker)
-            fund = fetch_fundamentals(ticker)
-            final_score, breakdown = score_stock(
-                ticker, tech, fund, market_data, sector_map, weights
-            )
-            scored.append({
-                "ticker":    ticker,
-                "score":     final_score,
-                "tech":      tech,
-                "fund":      fund,
-                "breakdown": breakdown,
-            })
-            log.info("  %-6s  score=%.1f  trend=%s  rsi=%.0f",
-                     ticker, final_score, tech.get("trend", "?"), tech.get("rsi", 0))
-        except Exception as e:
-            log.warning("  %-6s  FAILED: %s", ticker, e)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(_score_one, t, universe[t], market_data, weights): t
+            for t in tickers
+        }
+        done = 0
+        for fut in as_completed(futures):
+            done += 1
+            result = fut.result()
+            if result:
+                scored.append(result)
+                log.info("  [%d/%d] %-6s  score=%.1f  trend=%s  rsi=%.0f",
+                         done, len(tickers), result["ticker"], result["score"],
+                         result["tech"].get("trend", "?"), result["tech"].get("rsi", 0))
+            else:
+                log.info("  [%d/%d] %-6s  skipped", done, len(tickers), futures[fut])
 
     # Sort best-first
     scored.sort(key=lambda x: x["score"], reverse=True)

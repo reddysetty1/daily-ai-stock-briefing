@@ -673,27 +673,20 @@ function runScan() {
       label.textContent = msg.msg;
     }
 
-    else if (msg.type === 'progress') {
+    else if (msg.type === 'scored') {
       const pct = Math.round(msg.i / msg.total * 100);
       fill.style.width = pct + '%';
-      label.textContent = `Scanning ${msg.ticker}… (${msg.i}/${msg.total})`;
-      // Add placeholder chip
-      const chip = document.createElement('div');
-      chip.className = 'sticker processing';
-      chip.id = 'chip-' + msg.ticker;
-      chip.innerHTML = `<span class="st-name">${msg.ticker}</span><span class="st-score">…</span>`;
-      grid.appendChild(chip);
-      chip.scrollIntoView({behavior:'smooth', block:'nearest'});
-    }
+      label.textContent = `Scored ${msg.ticker} (${msg.i}/${msg.total})`;
 
-    else if (msg.type === 'scored') {
-      const chip = document.getElementById('chip-' + msg.ticker);
-      if (chip) {
-        chip.classList.remove('processing');
-        chip.querySelector('.st-score').textContent = msg.score;
-        if (msg.score >= 60) chip.style.borderColor = 'var(--green)';
-        else if (msg.error) chip.style.borderColor = 'var(--red)';
-      }
+      const chip = document.createElement('div');
+      chip.className = 'sticker';
+      chip.id = 'chip-' + msg.ticker;
+      chip.innerHTML = `<span class="st-name">${msg.ticker}</span><span class="st-score">${msg.score}</span>`;
+      if (msg.score >= 65)      chip.style.borderColor = 'var(--green)';
+      else if (msg.score >= 50) chip.style.borderColor = 'var(--gold)';
+      else if (msg.error)       chip.style.borderColor = 'var(--red)';
+      grid.appendChild(chip);
+      if (msg.i % 20 === 0) chip.scrollIntoView({behavior:'smooth', block:'nearest'});
     }
 
     else if (msg.type === 'done') {

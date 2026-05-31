@@ -24,7 +24,10 @@ TG_CHAT_ID    = os.getenv("TELEGRAM_CHAT_ID",   "")
 with open(CONFIG_PATH) as f:
     CONFIG = json.load(f)
 
-UNIVERSE = CONFIG["universe"]   # {ticker: name}
+# Dynamic universe — S&P 500 + NASDAQ 100 + Dow Jones (cached weekly)
+from universe import get_universe, get_sector_etf
+_universe_full = get_universe()          # {ticker: {name, sector, index}}
+UNIVERSE = {t: v["name"] for t, v in _universe_full.items()}   # {ticker: name} for template
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -97,9 +100,10 @@ def api_analyze():
 
         tech    = fetch_full_technical(ticker)
         fund    = fetch_fundamentals(ticker)
-        weights = CONFIG["weights"]
-        sector_map = CONFIG["sector_map"]
-        risk_cfg   = CONFIG["risk"]
+        weights  = CONFIG["weights"]
+        risk_cfg = CONFIG["risk"]
+        sector   = fund.get("sector") or _universe_full.get(ticker, {}).get("sector", "")
+        sector_map = {ticker: get_sector_etf(sector)}
 
         score, bd = score_stock(ticker, tech, fund, market_data, sector_map, weights)
         setup     = detect_setup(tech)
@@ -197,7 +201,9 @@ def api_scan():
     """
     def generate():
         try:
+            import queue, threading
             import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             from tech_analysis  import fetch_full_technical
             from fundamentals   import fetch_fundamentals
             from scoring        import score_stock
@@ -206,10 +212,10 @@ def api_scan():
             from formatter      import format_ranked_summary, format_stock_detail
             from telegram_utils import send_messages
 
-            weights    = CONFIG["weights"]
-            sector_map = CONFIG["sector_map"]
-            risk_cfg   = CONFIG["risk"]
-            tickers    = list(UNIVERSE.keys())
+            weights  = CONFIG["weights"]
+            risk_cfg = CONFIG["risk"]
+            tickers  = list(_universe_full.keys())
+            total    = len(tickers)
 
             # Market context
             yield f"data: {json.dumps({'type':'status','msg':'Fetching market context…'})}\n\n"
@@ -225,20 +231,44 @@ def api_scan():
                     market_data[etf] = {"price": 0.0, "day_change_pct": 0.0}
 
             yield f"data: {json.dumps({'type':'market','data':market_data})}\n\n"
+            yield f"data: {json.dumps({'type':'status','msg':f'Scanning {total} stocks in parallel…'})}\n\n"
 
-            # Score all stocks
-            scored = []
-            total  = len(tickers)
-            for i, ticker in enumerate(tickers):
-                yield f"data: {json.dumps({'type':'progress','ticker':ticker,'i':i+1,'total':total})}\n\n"
+            def score_one(ticker):
+                tech = fetch_full_technical(ticker)
+                fund = fetch_fundamentals(ticker)
+                sector = fund.get("sector") or _universe_full.get(ticker, {}).get("sector", "")
+                sm = {ticker: get_sector_etf(sector)}
+                sc, bd = score_stock(ticker, tech, fund, market_data, sm, weights)
+                return {"ticker": ticker, "score": sc, "tech": tech, "fund": fund, "breakdown": bd}
+
+            # Score all stocks with thread pool, stream progress via a queue
+            result_q   = queue.Queue()
+            scored     = []
+            done_count = [0]
+
+            def worker(t):
                 try:
-                    tech  = fetch_full_technical(ticker)
-                    fund  = fetch_fundamentals(ticker)
-                    sc, bd = score_stock(ticker, tech, fund, market_data, sector_map, weights)
-                    scored.append({"ticker": ticker, "score": sc, "tech": tech, "fund": fund, "breakdown": bd})
-                    yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':round(sc,1),'trend':tech.get('trend',''),'rsi':round(tech.get('rsi',0),1)})}\n\n"
+                    r = score_one(t)
+                    result_q.put(("ok", t, r))
                 except Exception as e:
-                    yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':0,'error':str(e)})}\n\n"
+                    result_q.put(("err", t, str(e)))
+
+            executor = ThreadPoolExecutor(max_workers=12)
+            futs = [executor.submit(worker, t) for t in tickers]
+
+            while done_count[0] < total:
+                try:
+                    kind, ticker, payload = result_q.get(timeout=60)
+                    done_count[0] += 1
+                    i = done_count[0]
+                    if kind == "ok":
+                        scored.append(payload)
+                        yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':round(payload['score'],1),'i':i,'total':total,'trend':payload['tech'].get('trend',''),'rsi':round(payload['tech'].get('rsi',0),1)})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type':'scored','ticker':ticker,'score':0,'i':i,'total':total,'error':payload})}\n\n"
+                except Exception:
+                    break
+            executor.shutdown(wait=False)
 
             scored.sort(key=lambda x: x["score"], reverse=True)
 

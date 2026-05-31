@@ -1,30 +1,94 @@
 # 📊 Daily AI Stock Briefing & Scanner Bot
 
-A fully automated stock analysis system delivered to Telegram every weekday.
+A fully automated stock analysis system with a **local web dashboard** and daily Telegram delivery.
 Powered by **Google Gemini AI** + **live market data** via yfinance, scheduled free on **GitHub Actions**.
 
-No server. No cost. Wake up to your briefing — and get trade ideas with entry, stop, and target prices.
+No server. No cost. Wake up, open your dashboard, and get institutional-grade trade ideas.
 
 ---
 
 ## What it does
 
-| Feature | Time (PST) | Script |
-|---------|-----------|--------|
-| 🌅 Pre-market snapshot | 6:30 AM | `briefing.py` |
-| 🔍 Deep market analysis | 8:00 AM | `briefing.py` |
-| 📈 Daily stock scanner — top picks with trade plans | 5:45 AM | `daily_scan.py` |
-| 📉 EOD performance check vs morning entry zones | 3:15 PM | `eod_summary.py` |
-| 🤖 On-demand ticker analysis via Telegram bot | Any time | `bot.py` |
-| 🎯 Manual single-stock prediction (GitHub Actions UI) | On demand | `predict.py` |
+| Feature | How | When |
+|---------|-----|------|
+| 🖥️ **Web Dashboard** | `python app.py` → opens browser | Any time (local) |
+| 📈 **Daily stock scanner** — top picks with trade plans | GitHub Actions | 5:45 AM PST |
+| 🌅 **Pre-market snapshot** | GitHub Actions | 6:30 AM PST |
+| 🔍 **Deep market analysis** | GitHub Actions | 8:00 AM PST |
+| 📉 **EOD performance check** vs morning entry zones | GitHub Actions | 3:15 PM PST |
+| 🤖 **Telegram bot** — send any ticker, get full analysis | GitHub Actions (poll) | Every 5 min |
+| 🎯 **Manual prediction** via GitHub Actions UI | workflow_dispatch | On demand |
 
 ---
 
-## Sample messages
+## 🖥️ Web Dashboard — open every morning
+
+The dashboard is a local Flask web app. **One double-click to launch it.**
+
+### First-time setup (once only)
+
+```bash
+git clone https://github.com/YOUR_USERNAME/daily-ai-stock-briefing
+cd daily-ai-stock-briefing
+pip install -r requirements.txt
+cp .env.example .env        # fill in your API keys
+```
+
+### Daily use — Windows
+
+**Double-click `launch.bat`** in the project folder. It opens the dashboard at `http://localhost:5000` automatically.
+
+Or from terminal:
+```bash
+python app.py
+```
+
+### Daily use — Mac / Linux
+
+**Double-click `launch.command`** in the project folder, or:
+```bash
+python app.py
+```
+
+> The app auto-opens your browser. Just leave the terminal window running in the background while you use the dashboard.
+
+---
+
+## Dashboard features
+
+### 🔍 Analyzer tab
+- Type any ticker — autocomplete covers **10,000+ stocks** across NYSE, NASDAQ, S&P 500, Dow Jones
+- Full analysis in ~5 seconds: price, technicals, trade plan (entry zone / stop / T1 / T2), position sizing, score breakdown, AI narrative
+- Toggle **Send to Telegram** to push results to your phone simultaneously
+
+### 📈 Daily Scanner tab
+- Scans **all 10,000+ stocks** in parallel (12 workers) — completes in ~15–20 min
+- Live progress — every ticker appears as it's scored, colour-coded green / yellow / red
+- Top picks shown as cards with entry zone, stop, targets, R:R ratio
+- Click any pick → drills into the Analyzer tab with full detail
+
+---
+
+## Universe coverage
+
+| Source | Exchange | Stocks |
+|--------|----------|--------|
+| SEC EDGAR | NYSE | ~3,100 |
+| SEC EDGAR | NASDAQ | ~4,300 |
+| Wikipedia | S&P 500 | 503 |
+| Wikipedia | NASDAQ 100 | 101 |
+| Wikipedia | Dow Jones | 30 |
+| **Total unique** | | **~10,200** |
+
+The universe auto-refreshes from its sources every 7 days. No manual maintenance needed.
+
+---
+
+## Sample Telegram messages
 
 ### Morning Briefing (6:30 AM)
 ```
-📊 Tuesday, May 19, 2026 | Pre-Market Briefing
+📊 Tuesday, May 20, 2026 | Pre-Market Briefing
 
 — MARKET SNAPSHOT —
 📈 SPY: $540.12 up 0.30% | QQQ: $460.88 down 0.10%
@@ -33,54 +97,37 @@ No server. No cost. Wake up to your briefing — and get trade ideas with entry,
 — TOP ANALYST MOVES —
 🟢 BUY: Apple ($AAPL) | Now: $197.84 | Target: $220 by Dec 2026
 🔴 SELL: NVIDIA ($NVDA) | Now: $222.32 | Downside: $195 by Aug 2026
-
-— HOT NEWS —
-🇺🇸 White House signals new AI infrastructure investment order.
 ```
 
 ### Daily Scanner (5:45 AM)
 ```
 📊 Daily Scan — Tuesday, May 20, 2026
-⏰ Pre-Market | Scanned 40 stocks
-
-— MARKET CONTEXT —
-SPY: $540.12 (+0.30%) | QQQ: $460.88 (+0.40%) | IWM: (+0.10%)
-Broad bias: Neutral
+⏰ Pre-Market | Scanned 10196 stocks
 
 — TOP PICKS TODAY —
 #1 MSFT 74pts | Pullback | Entry $415-$420 | Stop $408 | T1 $432 | R:R 2.8 🟡
 #2 AMZN 68pts | Breakout | Entry $192-$195 | Stop $187 | T1 $205 | R:R 2.4 🟡
-
-— RANKED LABELS —
-🚀 Best Breakout:  AMZN
-📉 Best Pullback:  MSFT
 ```
 
-### Per-Stock Detail (one message per pick)
+### Per-Stock Detail
 ```
 🎯 MSFT — Microsoft Corporation
 Score: 74/100 | Setup: Pullback | Quality: GOOD
 
 — TRADE PLAN —
-Setup Style:  Pullback to support
 Entry Zone:   $415.00 – $420.00
-Confirm:      Bullish candle or RSI turning up from near $417
 Stop-Loss:    $408.00 (distance: $7.00)
 Target 1:     $432.00 | R:R 2.4:1 🟡
 Target 2:     $448.00 | R:R 4.6:1
-Trailing:     Move stop to entry once price hits $423.50
-Time Exit:    If no move by Day 3
 
 — POSITION SIZE ($10,000 acct, 1% risk) —
-Shares: 14 | Value: $5,852 (58.5%)
-Risk: $98 (0.98% of account)
+Shares: 14 | Value: $5,852 | Risk: $98
 ```
 
 ### EOD Summary (3:15 PM)
 ```
 📊 EOD Summary — Tuesday, May 20, 2026
 
-— TODAY'S PICKS PERFORMANCE —
 MSFT: EOD $424.50 | Entry $415-$420 | 📈 Ran +1.1% above entry zone
 AMZN: EOD $193.20 | Entry $192-$195 | ✅ In entry zone
 ```
@@ -91,10 +138,12 @@ AMZN: EOD $193.20 | Entry $192-$195 | ✅ In entry zone
 
 | Tool | Purpose |
 |------|---------|
-| [Google Gemini API](https://aistudio.google.com) | AI narratives and briefing generation |
-| [yfinance](https://github.com/ranaroussi/yfinance) | Free real-time + historical stock data |
-| [Telegram Bot API](https://core.telegram.org/bots/api) | Message delivery & interactive bot |
-| [GitHub Actions](https://github.com/features/actions) | Free cloud scheduler (no server needed) |
+| [Flask](https://flask.palletsprojects.com) | Local web dashboard |
+| [Google Gemini API](https://aistudio.google.com) | AI narratives and briefing |
+| [yfinance](https://github.com/ranaroussi/yfinance) | Real-time + historical market data |
+| [SEC EDGAR API](https://www.sec.gov/cgi-bin/browse-edgar) | Full NYSE + NASDAQ universe |
+| [Telegram Bot API](https://core.telegram.org/bots/api) | Message delivery |
+| [GitHub Actions](https://github.com/features/actions) | Free cloud scheduler |
 | Python 3.11+ | Runtime |
 
 ---
@@ -102,30 +151,31 @@ AMZN: EOD $193.20 | Entry $192-$195 | ✅ In entry zone
 ## Architecture
 
 ```
-GitHub Actions (cron)
+┌─────────────────────────────────────────────────┐
+│  LOCAL  — python app.py → http://localhost:5000  │
+│                                                  │
+│  Analyzer tab   → analyze any ticker instantly   │
+│  Scanner tab    → full 10K-stock scan on demand  │
+│  Both tabs      → optionally send to Telegram    │
+└─────────────────────────────────────────────────┘
+
+GitHub Actions (cron — automatic, no local machine needed)
         │
         ├─ 5:45 AM PST ─→ daily_scan.py
-        │                     ├─ Fetch tech indicators (RSI, MACD, ATR, S/R) for 40 stocks
-        │                     ├─ Fetch fundamentals (revenue, EPS, margins, P/E)
-        │                     ├─ Score each stock (trend + momentum + volume + sector + fundamentals − risk)
-        │                     ├─ Detect setup (breakout / pullback / reversal / wait)
-        │                     ├─ Generate entry zone, stop-loss, T1, T2, position size
+        │                     ├─ Score 10K+ stocks in parallel (10 workers)
+        │                     ├─ Select top picks above score threshold
+        │                     ├─ Generate entry/exit/position plans
         │                     ├─ Gemini narrative per pick
-        │                     └─ Send ranked summary + per-stock detail to Telegram
+        │                     └─ Send ranked summary + detail to Telegram
         │
-        ├─ 6:30 AM PST ─→ briefing.py (BRIEFING_MODE=premarket) → Telegram
-        ├─ 8:00 AM PST ─→ briefing.py (BRIEFING_MODE=analysis)  → Telegram
+        ├─ 6:30 AM PST ─→ briefing.py (pre-market snapshot) → Telegram
+        ├─ 8:00 AM PST ─→ briefing.py (deep analysis)       → Telegram
         │
         ├─ 3:15 PM PST ─→ eod_summary.py
-        │                     ├─ Re-fetch EOD prices for morning picks
-        │                     └─ Report entry zone hit / ran above / stop hit / watch
+        │                     └─ Re-fetch EOD prices, report vs entry zones
         │
         └─ Every 5 min ─→ bot.py
-                              ├─ Poll Telegram getUpdates
-                              └─ Reply to any ticker message with full predict.py analysis
-
-Manual triggers (GitHub Actions UI)
-        └─ predict_stock.yml → input ticker → predict.py → Telegram
+                              └─ Telegram: send ticker → get full analysis reply
 ```
 
 ---
@@ -140,10 +190,8 @@ Each stock is scored 0–100 using a weighted multi-factor model:
 | Momentum | 20% | RSI range, MACD direction, weekly MACD |
 | Fundamentals | 20% | Revenue growth, EPS, gross margin, FCF, P/E, balance sheet |
 | Volume | 13% | Volume vs 20-day avg + volume trend |
-| Sector | 10% | Stock performance relative to its sector ETF |
+| Sector | 10% | Stock vs its sector ETF (XLF, QQQ, XLV…) |
 | Risk Penalty | 15% | Overbought RSI, extended price, earnings proximity, high beta |
-
-Top 3–6 stocks above a minimum score of 50 are selected as picks.
 
 ---
 
@@ -174,7 +222,7 @@ Click the **Fork** button at the top of this page.
 
 ### 3. Add GitHub Secrets
 
-Go to your forked repo → **Settings → Secrets and variables → Actions → New repository secret**
+Go to **Settings → Secrets and variables → Actions → New repository secret**
 
 | Secret name | Value |
 |-------------|-------|
@@ -185,35 +233,14 @@ Go to your forked repo → **Settings → Secrets and variables → Actions → 
 
 ### 4. Enable GitHub Actions
 
-Go to the **Actions** tab → click **"I understand my workflows, go ahead and enable them"**.
+Go to the **Actions** tab → **"I understand my workflows, go ahead and enable them"**.
 
-That's it. All workflows run automatically on weekdays.
-
----
-
-## Local development
+### 5. Launch the dashboard locally
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/daily-ai-stock-briefing
-cd daily-ai-stock-briefing
-
 pip install -r requirements.txt
-
-cp .env.example .env
-# Fill in your keys in .env
-
-# Test the daily scanner (sends to Telegram)
-python daily_scan.py
-
-# Test the EOD summary
-python eod_summary.py
-
-# Test single-stock prediction
-set STOCK_TICKER=AAPL && python predict.py   # Windows
-STOCK_TICKER=AAPL python predict.py          # Mac/Linux
-
-# Test morning briefing
-set BRIEFING_MODE=premarket && python briefing.py
+cp .env.example .env   # fill in your keys
+python app.py          # opens http://localhost:5000
 ```
 
 ---
@@ -222,25 +249,27 @@ set BRIEFING_MODE=premarket && python briefing.py
 
 | What | Where |
 |------|-------|
-| Stock universe (which 40 stocks to scan) | `config.json` → `universe` |
 | Scoring weights | `config.json` → `weights` |
 | Account size & risk per trade | `config.json` → `risk` |
 | Minimum score threshold | `config.json` → `selection.min_score` |
 | Schedule times | `.github/workflows/*.yml` cron expressions |
 | Gemini model | `GEMINI_MODEL` secret or `.env` |
+| Universe refresh interval | `universe.py` → `CACHE_TTL` (default: 7 days) |
 
 ---
 
 ## Project structure
 
 ```
-├── briefing.py          # Pre-market & deep-analysis briefings (Gemini)
-├── predict.py           # Single-stock intraday + weekly prediction (Gemini)
+├── app.py               # Local web dashboard (Flask)
+├── briefing.py          # Pre-market & deep-analysis Telegram briefings
+├── predict.py           # Single-stock intraday + weekly prediction
 ├── bot.py               # Telegram polling bot
 ├── daily_scan.py        # Pre-market stock selection & trade planning
 ├── eod_summary.py       # EOD performance check
 │
-├── tech_analysis.py     # RSI, MACD, ATR, support/resistance, full technical fetch
+├── universe.py          # Dynamic universe loader (SEC + Wikipedia, ~10K stocks)
+├── tech_analysis.py     # RSI, MACD, ATR, Bollinger, support/resistance
 ├── fundamentals.py      # yfinance fundamentals fetch + scoring
 ├── scoring.py           # Multi-factor stock scoring engine
 ├── signals.py           # Setup detection + entry/exit plan generation
@@ -248,9 +277,11 @@ set BRIEFING_MODE=premarket && python briefing.py
 ├── formatter.py         # Telegram message assembly
 ├── telegram_utils.py    # Message splitting (4096 char limit)
 │
-├── config.json          # Universe, weights, risk params
+├── config.json          # Weights, risk params, selection thresholds
 ├── requirements.txt
 ├── .env.example
+├── launch.bat           # Windows one-click launcher
+├── launch.command       # Mac/Linux one-click launcher
 │
 └── .github/workflows/
     ├── premarket_briefing.yml   # 6:30 AM PST

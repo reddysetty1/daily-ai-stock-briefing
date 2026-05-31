@@ -1,9 +1,14 @@
 """
 universe.py — Dynamic index constituent loader.
 
-Fetches tickers for S&P 500, NASDAQ 100, and Dow Jones from Wikipedia.
-Results are cached locally in universe_cache.json and refreshed weekly.
+Sources:
+  • S&P 500    — Wikipedia
+  • NASDAQ 100 — Wikipedia
+  • Dow Jones  — Wikipedia
+  • NYSE       — NASDAQ Trader FTP (otherlisted.txt, covers NYSE + AMEX)
+  • NASDAQ All — NASDAQ Trader FTP (nasdaqlisted.txt)
 
+Results are cached locally in universe_cache.json and refreshed weekly.
 Returns a dict: { ticker: { "name": str, "sector": str, "index": [str] } }
 """
 
@@ -115,28 +120,81 @@ def _fetch_dow() -> dict:
     return result
 
 
+def _fetch_sec_all() -> dict:
+    """
+    Fetch all US exchange-listed companies from SEC EDGAR.
+    Source: https://www.sec.gov/files/company_tickers_exchange.json
+    Covers NYSE, NASDAQ, NYSE Arca, NYSE American (AMEX), and more.
+    ~10,000+ companies — the most comprehensive free source available.
+    """
+    import requests
+    url  = "https://www.sec.gov/files/company_tickers_exchange.json"
+    # SEC requires a descriptive User-Agent per their policy
+    hdrs = {"User-Agent": "StockAnalysisDashboard/1.0 (personal project; contact@example.com)"}
+    resp = requests.get(url, headers=hdrs, timeout=30)
+    resp.raise_for_status()
+    data   = resp.json()
+    fields = data["fields"]   # ['cik', 'name', 'ticker', 'exchange']
+    result = {}
+    for row in data["data"]:
+        entry    = dict(zip(fields, row))
+        ticker   = str(entry.get("ticker", "")).strip().upper()
+        name     = str(entry.get("name",   "")).strip()
+        exchange = str(entry.get("exchange", "")).strip()
+        if not ticker or len(ticker) > 6:
+            continue
+        if not ticker.replace("-", "").isalpha():
+            continue
+        # Map SEC exchange labels to friendly names
+        idx = {
+            "NYSE":         "NYSE",
+            "Nasdaq":       "NASDAQ",
+            "NYSE Arca":    "NYSE",
+            "NYSE American":"NYSE",
+            "CBOE":         "CBOE",
+        }.get(exchange, exchange)
+        result[ticker] = {"name": name, "sector": "", "index": [idx]}
+    log.info("SEC EDGAR (all exchanges): %d tickers", len(result))
+    return result
+
+
 def _build_universe() -> dict:
-    """Merge S&P 500 + NASDAQ 100 + Dow Jones, deduplicate."""
+    """
+    Merge all sources, deduplicate.
+    Priority for sector/name: S&P 500 > NASDAQ 100 > Dow > NYSE > NASDAQ All
+    """
     universe = {}
 
-    for fetch_fn in [_fetch_sp500, _fetch_nasdaq100, _fetch_dow]:
+    # Ordered so richer data (Wikipedia) fills in first;
+    # SEC covers everything else (NYSE + full NASDAQ)
+    sources = [
+        _fetch_sp500,
+        _fetch_nasdaq100,
+        _fetch_dow,
+        _fetch_sec_all,
+    ]
+
+    for fetch_fn in sources:
         try:
             batch = fetch_fn()
             for ticker, info in batch.items():
                 if ticker in universe:
-                    # Merge index memberships
                     universe[ticker]["index"] = list(set(universe[ticker]["index"] + info["index"]))
-                    # Fill in sector if missing
-                    if not universe[ticker]["sector"] and info["sector"]:
+                    if not universe[ticker]["sector"] and info.get("sector"):
                         universe[ticker]["sector"] = info["sector"]
+                    if universe[ticker]["name"] == ticker and info["name"] != ticker:
+                        universe[ticker]["name"] = info["name"]
                 else:
                     universe[ticker] = info
         except Exception as e:
-            log.warning("Fetch failed: %s", e)
+            log.warning("Fetch failed (%s): %s", fetch_fn.__name__, e)
 
-    # Filter out clearly bad entries
-    universe = {t: v for t, v in universe.items()
-                if t and 1 <= len(t) <= 5 and t.isalpha() or "-" in t}
+    # Clean up: keep only valid tickers (1-5 alpha chars, with optional hyphen for share classes)
+    def valid_ticker(t):
+        clean = t.replace("-", "")
+        return 1 <= len(t) <= 6 and clean.isalpha()
+
+    universe = {t: v for t, v in universe.items() if valid_ticker(t)}
 
     log.info("Combined universe: %d unique tickers", len(universe))
     return universe

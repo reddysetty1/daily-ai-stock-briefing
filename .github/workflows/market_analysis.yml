@@ -1,9 +1,10 @@
 name: Market Analysis (8:00 AM PST)
 
 on:
-  # 8:00 AM PST = 16:00 UTC (PST is UTC-8)
+  # 8:13 AM PST = 16:13 UTC (PST is UTC-8)
+  # Odd minute + avoid :00 sharp — GitHub Actions queue is least congested here
   schedule:
-    - cron: "0 16 * * 1-5"
+    - cron: "13 16 * * 1-5"
 
   workflow_dispatch:
 

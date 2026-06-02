@@ -2,8 +2,9 @@ name: Daily Pre-Market Stock Scanner
 
 on:
   schedule:
-    # 5:45 AM PST = 13:45 UTC  (Mon-Fri)
-    - cron: '45 13 * * 1-5'
+    # 6:07 AM PST = 14:07 UTC  (Mon-Fri)
+    # Odd minute avoids GitHub Actions peak-hour queue congestion
+    - cron: '7 14 * * 1-5'
   workflow_dispatch:   # allow manual trigger for testing
 
 jobs:

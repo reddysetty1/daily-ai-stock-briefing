@@ -1,9 +1,10 @@
 name: Pre-Market Briefing (6:30 AM PST)
 
 on:
-  # 6:30 AM PST = 14:30 UTC (PST is UTC-8)
+  # 6:37 AM PST = 14:37 UTC (PST is UTC-8)
+  # Odd minute avoids GitHub Actions peak-hour queue congestion
   schedule:
-    - cron: "30 14 * * 1-5"
+    - cron: "37 14 * * 1-5"
 
   workflow_dispatch:
 

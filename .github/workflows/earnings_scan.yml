@@ -1,0 +1,36 @@
+name: Earnings Play Scanner
+
+on:
+  schedule:
+    # 5:30 AM PST = 13:30 UTC (Mon-Fri)
+    # Runs before market open — gives you time to enter at open
+    # Odd minute to avoid GitHub Actions peak queue congestion
+    - cron: '31 13 * * 1-5'
+
+  workflow_dispatch:   # manual trigger for testing
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run earnings play scanner
+        env:
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL:       ${{ secrets.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python earnings_scanner.py

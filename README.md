@@ -12,10 +12,11 @@ No server. No cost. Wake up, open your dashboard, and get institutional-grade tr
 | Feature | How | When |
 |---------|-----|------|
 | 🖥️ **Web Dashboard** | `python app.py` → opens browser | Any time (local) |
-| 📈 **Daily stock scanner** — top picks with trade plans | GitHub Actions | 5:45 AM PST |
-| 🌅 **Pre-market snapshot** | GitHub Actions | 6:30 AM PST |
-| 🔍 **Deep market analysis** | GitHub Actions | 8:00 AM PST |
-| 📉 **EOD performance check** vs morning entry zones | GitHub Actions | 3:15 PM PST |
+| 🎯 **Earnings play scanner** — beat-history + 2 strategies + exits | GitHub Actions | 5:30 AM PST |
+| 📈 **Daily stock scanner** — top picks with trade plans | GitHub Actions | 6:07 AM PST |
+| 🌅 **Pre-market snapshot** | GitHub Actions | 6:37 AM PST |
+| 🔍 **Deep market analysis** | GitHub Actions | 8:13 AM PST |
+| 📉 **EOD performance check** vs morning entry zones | GitHub Actions | 3:19 PM PST |
 | 🤖 **Telegram bot** — send any ticker, get full analysis | GitHub Actions (poll) | Every 5 min |
 | 🎯 **Manual prediction** via GitHub Actions UI | workflow_dispatch | On demand |
 
@@ -203,6 +204,16 @@ GitHub Actions (cron — automatic, no local machine needed)
         ├─ 3:15 PM PST ─→ eod_summary.py
         │                     └─ Re-fetch EOD prices, report vs entry zones
         │
+            ├─ 5:30 AM PST ─→ earnings_scanner.py
+        │                     ├─ Scan full universe for earnings in next 5 days
+        │                     ├─ Filter: ≥55% beat rate, ≥3 quarters history, $2B+ cap
+        │                     ├─ Analyze: beat rate, avg EPS surprise, post-earnings moves
+        │                     ├─ Calculate: options expected move, pre-earnings momentum
+        │                     ├─ Strategy A: pre-run play (sell before announcement)
+        │                     ├─ Strategy B: hold through (full binary play)
+        │                     ├─ Full exit rules for both strategies
+        │                     └─ Send per-play detailed brief + AI narrative to Telegram
+        │
         └─ Every 5 min ─→ bot.py
                               └─ Telegram: send ticker → get full analysis reply
 ```
@@ -301,6 +312,7 @@ python app.py          # opens http://localhost:5000
 │
 ├── universe.py          # Dynamic universe loader (SEC + Wikipedia, ~10K stocks)
 ├── screener.py          # Fast pre-filter: price, volume, rel-volume, market-cap
+├── earnings_scanner.py  # Pre-earnings opportunity scanner — beat history + strategies
 ├── tech_analysis.py     # RSI, MACD, ATR, Bollinger, support/resistance
 ├── fundamentals.py      # yfinance fundamentals fetch + scoring
 ├── scoring.py           # Multi-factor stock scoring engine

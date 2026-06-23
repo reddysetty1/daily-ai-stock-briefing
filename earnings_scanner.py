@@ -233,28 +233,239 @@ def _get_avg_pre_run(t):
     return round(float(np.mean(runs)), 1) if runs else 0.0
 
 
+# ── Sentiment & public interest helpers ───────────────────────────────────────
+
+# Keywords for news sentiment classification
+_POS_WORDS = {"beat", "beats", "surge", "surges", "record", "strong", "growth",
+              "upgrade", "upgraded", "buy", "outperform", "raise", "raised",
+              "bullish", "profit", "revenue", "expand", "deal", "win", "contract",
+              "partnership", "momentum", "breakthrough", "exceed", "exceeded"}
+_NEG_WORDS = {"miss", "misses", "missed", "decline", "falls", "drops", "warning",
+              "downgrade", "downgraded", "sell", "underperform", "cut", "cuts",
+              "bearish", "loss", "weak", "slump", "lawsuit", "probe", "fraud",
+              "recall", "layoff", "layoffs", "restructur", "disappoint", "guidance"}
+
+
+def _get_sentiment(t):
+    """
+    Fetch sentiment signals from free yfinance data.
+    Returns a dict with all raw values used for scoring and display.
+    """
+    result = {
+        # Analyst consensus
+        "analyst_rating":    None,   # strong_buy/buy/hold/sell/strong_sell
+        "analyst_mean":      None,   # 1=strong buy .. 5=strong sell
+        "n_analysts":        0,
+        # Recent analyst moves (last 30 days)
+        "upgrades_30d":      0,
+        "downgrades_30d":    0,
+        # News
+        "news_positive":     0,
+        "news_negative":     0,
+        "news_neutral":      0,
+        "top_headlines":     [],     # last 3 headlines for display
+        # Short interest
+        "short_pct_float":   None,   # % of float sold short
+        "short_ratio":       None,   # days to cover
+        # Insider activity (last 90 days)
+        "insider_buy_value":  0.0,
+        "insider_sell_value": 0.0,
+        # Earnings surprise trend
+        "surprise_trend":    "flat", # accelerating / decelerating / flat
+    }
+    try:
+        info = t.info
+
+        # ── Analyst consensus ──────────────────────────────────────────
+        result["analyst_rating"] = info.get("recommendationKey")
+        result["analyst_mean"]   = info.get("recommendationMean")
+        result["n_analysts"]     = info.get("numberOfAnalystOpinions") or 0
+
+        # ── Recent upgrades / downgrades ───────────────────────────────
+        try:
+            ud = t.upgrades_downgrades
+            if ud is not None and not ud.empty:
+                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=30)
+                recent = ud[ud.index >= cutoff_date] if hasattr(ud.index, 'tz') else ud
+                # Action column: 'up', 'down', 'init', 'reit', 'main'
+                if "Action" in recent.columns:
+                    result["upgrades_30d"]   = int((recent["Action"].str.lower() == "up").sum())
+                    result["downgrades_30d"] = int((recent["Action"].str.lower() == "down").sum())
+        except Exception:
+            pass
+
+        # ── News sentiment ─────────────────────────────────────────────
+        try:
+            news = t.news or []
+            for article in news[:15]:
+                title = (article.get("title") or "").lower()
+                words = set(title.split())
+                pos = len(words & _POS_WORDS)
+                neg = len(words & _NEG_WORDS)
+                if pos > neg:
+                    result["news_positive"] += 1
+                elif neg > pos:
+                    result["news_negative"] += 1
+                else:
+                    result["news_neutral"] += 1
+            # Store top 3 headlines for display
+            result["top_headlines"] = [
+                a.get("title", "") for a in news[:3] if a.get("title")
+            ]
+        except Exception:
+            pass
+
+        # ── Short interest ─────────────────────────────────────────────
+        result["short_pct_float"] = info.get("shortPercentOfFloat")
+        result["short_ratio"]     = info.get("shortRatio")
+
+        # ── Insider activity ───────────────────────────────────────────
+        try:
+            it = t.insider_transactions
+            if it is not None and not it.empty:
+                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=90)
+                if "Start Date" in it.columns:
+                    recent_ins = it[pd.to_datetime(it["Start Date"]) >= cutoff_date]
+                else:
+                    recent_ins = it
+                if "Value" in recent_ins.columns and "Transaction" in recent_ins.columns:
+                    buys  = recent_ins[recent_ins["Transaction"].str.contains("Buy|Purchase", case=False, na=False)]
+                    sells = recent_ins[recent_ins["Transaction"].str.contains("Sell|Sale", case=False, na=False)]
+                    result["insider_buy_value"]  = float(buys["Value"].sum()  or 0)
+                    result["insider_sell_value"] = float(sells["Value"].sum() or 0)
+        except Exception:
+            pass
+
+    except Exception as e:
+        log.debug("sentiment error: %s", e)
+
+    return result
+
+
+def _score_sentiment(s, history):
+    """
+    Score sentiment signals 0–30 using industry-standard weighting.
+
+    Industry framework:
+      Analyst consensus    (0–8)  — institutional opinion, most reliable
+      Recent upgrades      (0–6)  — momentum in analyst sentiment
+      News sentiment       (0–6)  — public/media narrative
+      Short interest       (0–5)  — squeeze potential vs bearish signal
+      Insider activity     (0–5)  — insiders know the business best
+
+    Returns (score, breakdown_dict)
+    """
+    breakdown = {}
+
+    # ── 1. Analyst consensus (0–8) ─────────────────────────────────────
+    rating_scores = {
+        "strong_buy": 8, "buy": 6, "hold": 3,
+        "sell": 0, "strong_sell": 0, None: 4,
+    }
+    # Also use mean (1=strong buy, 5=strong sell)
+    mean = s["analyst_mean"]
+    if mean is not None:
+        analyst_pts = max(0, round(8 - (mean - 1) * 2, 1))  # 1→8, 3→4, 5→0
+    else:
+        analyst_pts = rating_scores.get(s["analyst_rating"], 4)
+    # Confidence bonus if many analysts cover it
+    if s["n_analysts"] >= 15:
+        analyst_pts = min(8, analyst_pts + 1)
+    breakdown["analyst"] = round(min(8, analyst_pts), 1)
+
+    # ── 2. Recent upgrades / downgrades (0–6) ──────────────────────────
+    net_upgrades = s["upgrades_30d"] - s["downgrades_30d"]
+    if net_upgrades >= 3:
+        upgrade_pts = 6
+    elif net_upgrades == 2:
+        upgrade_pts = 5
+    elif net_upgrades == 1:
+        upgrade_pts = 4
+    elif net_upgrades == 0:
+        upgrade_pts = 3
+    elif net_upgrades == -1:
+        upgrade_pts = 1
+    else:
+        upgrade_pts = 0
+    breakdown["upgrades"] = upgrade_pts
+
+    # ── 3. News sentiment (0–6) ────────────────────────────────────────
+    total_news = s["news_positive"] + s["news_negative"] + s["news_neutral"]
+    if total_news > 0:
+        pos_ratio = s["news_positive"] / total_news
+        neg_ratio = s["news_negative"] / total_news
+        news_pts  = round(pos_ratio * 6 - neg_ratio * 4, 1)
+        news_pts  = max(0, min(6, news_pts))
+    else:
+        news_pts = 3  # neutral if no news
+    breakdown["news"] = round(news_pts, 1)
+
+    # ── 4. Short interest (0–5) ────────────────────────────────────────
+    # High short interest (>15%) going into earnings = SQUEEZE POTENTIAL
+    # if the stock is in an uptrend — shorts forced to cover on a beat.
+    # High short interest with weak technicals = bearish conviction.
+    short_pct = s["short_pct_float"]
+    if short_pct is None:
+        short_pts = 2  # neutral
+    elif short_pct >= 0.20:
+        short_pts = 5  # >20% short = massive squeeze potential on a beat
+    elif short_pct >= 0.10:
+        short_pts = 4  # 10-20% = significant squeeze fuel
+    elif short_pct >= 0.05:
+        short_pts = 2  # 5-10% = normal
+    else:
+        short_pts = 1  # very low short = limited squeeze, already crowded long
+    breakdown["short_squeeze"] = short_pts
+
+    # ── 5. Insider activity (0–5) ──────────────────────────────────────
+    buy_val  = s["insider_buy_value"]
+    sell_val = s["insider_sell_value"]
+    if buy_val > sell_val * 2 and buy_val > 100_000:
+        insider_pts = 5   # strong net buying — insiders bullish
+    elif buy_val > sell_val:
+        insider_pts = 4   # net buying
+    elif buy_val == 0 and sell_val == 0:
+        insider_pts = 2   # no activity — neutral
+    elif sell_val > buy_val * 3:
+        insider_pts = 0   # heavy selling — red flag
+    else:
+        insider_pts = 1   # net selling
+    breakdown["insider"] = insider_pts
+
+    total = sum(breakdown.values())
+    return round(min(30, total), 1), breakdown
+
+
 # ── Scoring ────────────────────────────────────────────────────────────────────
 
-def _score_play(beat_rate, n_quarters, avg_surprise, avg_up, pre_momentum, tech_score):
-    """Score an earnings play 0–100."""
+def _score_play(beat_rate, n_quarters, avg_surprise, avg_up, pre_momentum,
+                tech_score, sentiment_score=0):
+    """
+    Score an earnings play 0–100.
+
+    Base score (0–70): earnings history + technicals
+    Sentiment bonus  (0–30): analyst + news + short squeeze + insider
+    """
     s = 0.0
-    # Beat consistency (0–35)
-    s += beat_rate * 35
-    # Sample size confidence (0–10)
-    s += min(10, n_quarters * 1.5)
-    # Average EPS surprise magnitude (0–20)
-    s += min(20, max(0, avg_surprise) * 0.8)
-    # Average up-move size (0–20)
-    s += min(20, max(0, avg_up) * 1.2)
-    # Pre-earnings momentum — sweet spot is 2–8% (0–10)
+    # Beat consistency (0–28) — scaled down from 35 to make room for sentiment
+    s += beat_rate * 28
+    # Sample size confidence (0–8)
+    s += min(8, n_quarters * 1.3)
+    # Average EPS surprise magnitude (0–16)
+    s += min(16, max(0, avg_surprise) * 0.65)
+    # Average up-move size (0–14)
+    s += min(14, max(0, avg_up) * 0.85)
+    # Pre-earnings momentum — sweet spot is 2–8% (0–8)
     if 2 <= pre_momentum <= 8:
-        s += 10
+        s += 8
     elif 0 <= pre_momentum < 2:
-        s += 5
+        s += 4
     elif 8 < pre_momentum <= 15:
-        s += 3   # running but not crazy
-    # Technical quality (0–5)
-    s += min(5, tech_score / 20)
+        s += 2
+    # Technical quality (0–4)
+    s += min(4, tech_score / 25)
+    # Sentiment bonus (0–30)
+    s += sentiment_score
     return round(min(100, s), 1)
 
 
@@ -376,9 +587,13 @@ def _analyze_one(ticker, today, cutoff):
         if 40 <= rsi <= 65:    tech_score += 15
         if macd_bullish:       tech_score += 15
 
+        # Sentiment & public interest
+        sentiment_data = _get_sentiment(t)
+        sentiment_score, sentiment_breakdown = _score_sentiment(sentiment_data, history)
+
         # Final play score
         score = _score_play(beat_rate, len(history), avg_surprise,
-                            avg_up, pre_momentum, tech_score)
+                            avg_up, pre_momentum, tech_score, sentiment_score)
 
         return {
             "ticker":       ticker,
@@ -415,6 +630,10 @@ def _analyze_one(ticker, today, cutoff):
             "gross_margin": gross_margin,
             "pe":           round(pe, 1) if pe else None,
             "eps_estimate": round(eps_estimate, 2) if eps_estimate else None,
+            # Sentiment
+            "sentiment":           sentiment_data,
+            "sentiment_score":     sentiment_score,
+            "sentiment_breakdown": sentiment_breakdown,
         }
 
     except Exception as e:
@@ -586,6 +805,70 @@ def _format_play_message(play, risk_cfg, narrative):
     ]
     if p["eps_estimate"]:
         lines.append(f"Analyst EPS estimate this quarter: ${p['eps_estimate']:.2f}")
+
+    # ── Sentiment section ──────────────────────────────────────────────
+    s  = p.get("sentiment", {})
+    sb = p.get("sentiment_breakdown", {})
+    ss = p.get("sentiment_score", 0)
+
+    # Analyst rating label
+    rating_labels = {
+        "strong_buy": "Strong Buy", "buy": "Buy", "hold": "Hold",
+        "sell": "Sell", "strong_sell": "Strong Sell",
+    }
+    rating_key   = s.get("analyst_rating")
+    rating_label = rating_labels.get(rating_key, "N/A")
+    rating_emoji = ("🟢" if rating_key in ("strong_buy", "buy")
+                    else "🔴" if rating_key in ("sell", "strong_sell")
+                    else "🟡")
+    n_analysts   = s.get("n_analysts", 0)
+
+    net_up = s.get("upgrades_30d", 0) - s.get("downgrades_30d", 0)
+    up_arrow  = "▲" if net_up > 0 else ("▼" if net_up < 0 else "➡️")
+    up_label  = (f"+{net_up} upgrade{'s' if net_up != 1 else ''}" if net_up > 0
+                 else f"{net_up} downgrade{'s' if net_up != -1 else ''}" if net_up < 0
+                 else "no change")
+
+    news_total   = s.get("news_positive", 0) + s.get("news_negative", 0) + s.get("news_neutral", 0)
+    news_pos_pct = round(s.get("news_positive", 0) / news_total * 100) if news_total else 0
+    news_emoji   = "🟢" if news_pos_pct >= 60 else "🔴" if news_pos_pct <= 30 else "🟡"
+
+    short_pct  = s.get("short_pct_float")
+    short_line = f"{short_pct*100:.1f}% of float short" if short_pct else "N/A"
+    if short_pct and short_pct >= 0.15:
+        short_line += " — HIGH SHORT (squeeze fuel)"
+    elif short_pct and short_pct >= 0.10:
+        short_line += " — elevated"
+
+    buy_v  = s.get("insider_buy_value",  0)
+    sell_v = s.get("insider_sell_value", 0)
+    if buy_v > 0 or sell_v > 0:
+        if buy_v > sell_v * 2:
+            insider_line = f"Strong net buying (${buy_v/1e6:.1f}M vs ${sell_v/1e6:.1f}M sold)"
+        elif buy_v > sell_v:
+            insider_line = f"Net buying (${buy_v/1e6:.1f}M vs ${sell_v/1e6:.1f}M sold)"
+        elif sell_v > buy_v * 3:
+            insider_line = f"Heavy selling (${sell_v/1e6:.1f}M vs ${buy_v/1e6:.1f}M bought)"
+        else:
+            insider_line = f"Mixed (${buy_v/1e6:.1f}M bought, ${sell_v/1e6:.1f}M sold)"
+    else:
+        insider_line = "No recent activity"
+
+    lines += [
+        "",
+        f"— SENTIMENT & PUBLIC INTEREST  ({ss:.0f}/30 pts) —",
+        f"{rating_emoji}  Analyst rating:   {rating_label}  ({n_analysts} analysts)",
+        f"{up_arrow}  Last 30 days:    {up_label}  (upgrades vs downgrades)",
+        f"{news_emoji}  News tone:       {news_pos_pct}% positive of {news_total} recent articles",
+        f"⚡  Short interest:  {short_line}",
+        f"👤  Insider (90d):   {insider_line}",
+    ]
+    # Show top 2 headlines if available
+    headlines = s.get("top_headlines", [])
+    if headlines:
+        lines.append("    Recent headlines:")
+        for h in headlines[:2]:
+            lines.append(f"    • {h[:100]}")
 
     lines += [
         "",

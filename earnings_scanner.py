@@ -298,7 +298,9 @@ def _get_sentiment(t):
         try:
             news = t.news or []
             for article in news[:15]:
-                title = (article.get("title") or "").lower()
+                # yfinance nests title under article['content']['title']
+                title = (article.get("content", {}).get("title")
+                         or article.get("title") or "").lower()
                 words = set(title.split())
                 pos = len(words & _POS_WORDS)
                 neg = len(words & _NEG_WORDS)
@@ -310,7 +312,9 @@ def _get_sentiment(t):
                     result["news_neutral"] += 1
             # Store top 3 headlines for display
             result["top_headlines"] = [
-                a.get("title", "") for a in news[:3] if a.get("title")
+                (a.get("content", {}).get("title") or a.get("title") or "")
+                for a in news[:3]
+                if (a.get("content", {}).get("title") or a.get("title"))
             ]
         except Exception:
             pass
@@ -328,9 +332,12 @@ def _get_sentiment(t):
                     recent_ins = it[pd.to_datetime(it["Start Date"]) >= cutoff_date]
                 else:
                     recent_ins = it
-                if "Value" in recent_ins.columns and "Transaction" in recent_ins.columns:
-                    buys  = recent_ins[recent_ins["Transaction"].str.contains("Buy|Purchase", case=False, na=False)]
-                    sells = recent_ins[recent_ins["Transaction"].str.contains("Sell|Sale", case=False, na=False)]
+                if "Value" in recent_ins.columns:
+                    # yfinance uses 'Text' column: "Sale at price...", "Purchase at price..."
+                    # Fall back to 'Transaction' if 'Text' not present
+                    txt_col = "Text" if "Text" in recent_ins.columns else "Transaction"
+                    buys  = recent_ins[recent_ins[txt_col].str.contains("Purchase|Buy", case=False, na=False)]
+                    sells = recent_ins[recent_ins[txt_col].str.contains("Sale|Sell", case=False, na=False)]
                     result["insider_buy_value"]  = float(buys["Value"].sum()  or 0)
                     result["insider_sell_value"] = float(sells["Value"].sum() or 0)
         except Exception:

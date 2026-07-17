@@ -39,7 +39,7 @@ from fundamentals   import fetch_fundamentals
 from scoring        import score_stock
 from signals        import detect_setup, generate_entry_plan, generate_exit_plan
 from risk           import calculate_position_size, assess_setup_quality
-from formatter      import format_ranked_summary, format_stock_detail
+from formatter      import format_ranked_summary, format_stock_detail, format_top_buys_suggestion
 from telegram_utils import send_messages
 from universe       import get_universe, get_sector_etf
 
@@ -254,6 +254,11 @@ def run_scan():
         detail_msg = format_stock_detail(p, account_size=risk_cfg["account_size"])
         log.info("Sending detail for %s …", p["ticker"])
         send_messages(TG_TOKEN, TG_CHAT_ID, detail_msg)
+
+    # ── Top Buys suggestion card (final message) ──────────────────────────────
+    top_buys_msg = format_top_buys_suggestion(picks, market_data, date_str)
+    log.info("Sending top buys suggestion …")
+    send_messages(TG_TOKEN, TG_CHAT_ID, top_buys_msg)
 
     # ── Step 5: Cache picks for EOD summary ──────────────────────────────────
     cache_path = os.path.join(os.path.dirname(__file__), "picks_cache.json")

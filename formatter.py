@@ -245,3 +245,101 @@ def format_eod_summary(picks: list, date_str: str = None) -> str:
         "⚠️ Past performance does not guarantee future results.",
     ]
     return "\n".join(lines)
+
+
+def format_top_buys_suggestion(picks: list, market_data: dict, date_str: str = None) -> str:
+    """
+    Concise 'Top Buys for Today' suggestion card.
+    Filters for actionable setups only (breakout/pullback/reversal, quality GOOD/MARGINAL,
+    R:R >= 1.5) and ranks them. Sent as a separate final message after the detail cards.
+    """
+    date_str = date_str or datetime.now().strftime("%A, %B %d %Y")
+    spy_chg  = market_data.get("SPY", {}).get("day_change_pct", 0)
+    mood     = "Bullish" if spy_chg > 0.3 else "Bearish" if spy_chg < -0.3 else "Neutral"
+
+    # Filter: only actionable setups with decent R:R
+    actionable = [
+        p for p in picks
+        if p["setup"] in ("breakout", "pullback", "reversal")
+        and p["entry"]["exit_plan"]["rr1"] >= 1.5
+        and p["quality"] in ("GOOD", "MARGINAL")
+    ]
+
+    # Sort by composite: score × R:R
+    actionable.sort(
+        key=lambda p: p["score"] * p["entry"]["exit_plan"]["rr1"],
+        reverse=True
+    )
+
+    lines = [
+        f"💡 TOP BUYS FOR TODAY — {date_str}",
+        f"Market bias: {mood} | SPY {'+' if spy_chg >= 0 else ''}{spy_chg:.2f}%",
+        "",
+    ]
+
+    if not actionable:
+        lines += [
+            "No high-conviction buy setups today.",
+            "Market conditions favour patience — stay in cash or watch the list.",
+        ]
+        lines.append("\n⚠️ Not financial advice.")
+        return "\n".join(lines)
+
+    # Tier the picks
+    strong  = [p for p in actionable if p["quality"] == "GOOD"    and p["entry"]["exit_plan"]["rr1"] >= 2.5]
+    decent  = [p for p in actionable if p not in strong]
+
+    if strong:
+        lines.append("🟢 STRONG CONVICTION — Buy at open:")
+        for p in strong:
+            ep   = p["entry"]["entry_plan"]
+            ex   = p["entry"]["exit_plan"]
+            el, eh = ep.get("entry_low"), ep.get("entry_high")
+            entry_str = f"${el}–${eh}" if el and eh else f"~${p['tech']['current_price']:.2f}"
+            lines.append(
+                f"  {p['ticker']}  {p['score']:.0f}pts  |  {p['setup'].title()}"
+                f"  |  Entry {entry_str}  |  Stop ${ex['stop']}  |  T1 ${ex['t1']}  "
+                f"  |  R:R {ex['rr1']}:1  {_rr_emoji(ex['rr1'])}"
+            )
+            # Why: 1-line reason from tech signals
+            tech = p["tech"]
+            reasons = []
+            if "Bullish" in str(tech.get("trend", "")):      reasons.append("uptrend")
+            if 40 <= float(tech.get("rsi", 50)) <= 60:       reasons.append(f"RSI {tech['rsi']:.0f} neutral")
+            elif float(tech.get("rsi", 50)) < 35:            reasons.append(f"RSI {tech['rsi']:.0f} oversold")
+            if tech.get("macd", 0) > tech.get("macd_signal", 0): reasons.append("MACD bullish")
+            if float(tech.get("vol_pct", 0)) > 20:           reasons.append(f"vol +{tech['vol_pct']:.0f}%")
+            if reasons:
+                lines.append(f"     Why: {', '.join(reasons)}")
+        lines.append("")
+
+    if decent:
+        lines.append("🟡 DECENT SETUPS — Consider on dip/confirmation:")
+        for p in decent[:3]:
+            ep   = p["entry"]["entry_plan"]
+            ex   = p["entry"]["exit_plan"]
+            el, eh = ep.get("entry_low"), ep.get("entry_high")
+            entry_str = f"${el}–${eh}" if el and eh else f"~${p['tech']['current_price']:.2f}"
+            lines.append(
+                f"  {p['ticker']}  {p['score']:.0f}pts  |  {p['setup'].title()}"
+                f"  |  Entry {entry_str}  |  T1 ${ex['t1']}  |  R:R {ex['rr1']}:1"
+            )
+        lines.append("")
+
+    # Watchlist — wait setups that scored well
+    watchlist = [p for p in picks if p["setup"] == "wait" and p["score"] >= 60]
+    if watchlist:
+        tickers = ", ".join(p["ticker"] for p in watchlist[:4])
+        lines.append(f"👁️ WATCH (no clean entry yet): {tickers}")
+        lines.append("")
+
+    # Quick tip based on market mood
+    if mood == "Bullish":
+        lines.append("Tip: Bullish tape — breakouts and pullbacks are higher probability today.")
+    elif mood == "Bearish":
+        lines.append("Tip: Bearish tape — prefer reversals; tighten stops on breakouts.")
+    else:
+        lines.append("Tip: Neutral tape — wait for intraday confirmation before entering.")
+
+    lines.append("\n⚠️ Not financial advice. Always confirm your own entry.")
+    return "\n".join(lines)

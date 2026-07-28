@@ -722,8 +722,11 @@ def _format_play_message(play, risk_cfg, narrative):
     earnings_dt = p["earnings_date"]
 
     # ── Strategy A: Pre-earnings run (sell before announcement) ───────
-    # Target = historical avg pre-run (capped at 8%), or 4% floor
-    pre_target_pct = max(4.0, min(8.0, p["avg_pre_run"] * 0.8)) if p["avg_pre_run"] > 1 else 4.0
+    # Use actual historical avg pre-run — no artificial floor.
+    # If avg_pre_run < 2%, Strategy A is NOT recommended for this stock.
+    avg_pre_run     = p["avg_pre_run"]
+    strategy_a_viable = avg_pre_run >= 2.0
+    pre_target_pct  = min(avg_pre_run * 0.85, 8.0) if strategy_a_viable else avg_pre_run
     a_entry  = price
     a_target = round(price * (1 + pre_target_pct / 100), 2)
     a_stop   = round(price - atr * 1.5, 2)
@@ -781,16 +784,21 @@ def _format_play_message(play, risk_cfg, narrative):
 
     # ── Warning block ──────────────────────────────────────────────────
     warnings = []
+    if not strategy_a_viable:
+        warnings.append(
+            f"Strategy A NOT recommended — this stock only drifts {avg_pre_run:+.1f}% "
+            f"historically before earnings. Not worth the trade. Use Strategy B instead."
+        )
     if p["beat_rate"] < 0.65:
-        warnings.append(f"Modest beat rate ({beat_pct}%) — Strategy A is safer")
+        warnings.append(f"Modest beat rate ({beat_pct}%) — be selective on Strategy B size")
     if p["pre_momentum"] > 10:
-        warnings.append("Stock already running — upside may be priced in")
+        warnings.append("Stock already running — pre-run may be priced in, reduce size")
     if p["pe"] and p["pe"] > 40:
         warnings.append(f"High P/E ({p['pe']}x) — any miss will be punished hard")
     if p["avg_down_move"] < -15:
         warnings.append(f"Misses are brutal: avg -{abs(p['avg_down_move']):.1f}% when they disappoint")
     if days_away == 1:
-        warnings.append("Reports TOMORROW — only Strategy A has time to work cleanly")
+        warnings.append("Reports TOMORROW — no time for Strategy A pre-run")
 
     # ── Assemble message ───────────────────────────────────────────────
     lines = [
@@ -893,20 +901,36 @@ def _format_play_message(play, risk_cfg, narrative):
         for h in headlines[:2]:
             lines.append(f"    • {h[:100]}")
 
+    a_header = (
+        "STRATEGY A — Pre-Earnings Run  ⛔ NOT RECOMMENDED FOR THIS STOCK"
+        if not strategy_a_viable else
+        "STRATEGY A — Pre-Earnings Run  (LOWER RISK)"
+    )
+    a_viability_note = (
+        [
+            f"⛔ This stock historically only moves {avg_pre_run:+.1f}% before earnings.",
+            f"   Strategy A is not worth the commission/spread on a {avg_pre_run:.1f}% target.",
+            f"   Skip Strategy A — focus on Strategy B below.",
+        ]
+        if not strategy_a_viable else
+        [
+            f"Stocks with strong pre-run history drift up before earnings as funds position early.",
+            f"This stock avg {avg_pre_run:+.1f}% in the 5 days before past announcements.",
+            f"You capture that move with ZERO binary risk.",
+        ]
+    )
+
     lines += [
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "STRATEGY A — Pre-Earnings Run  (LOWER RISK)",
+        a_header,
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"Entry:   Buy at market open (~${price})",
-        f"Target:  ${a_target}  (+{pre_target_pct:.1f}% typical pre-run)",
+        f"Target:  ${a_target}  ({pre_target_pct:+.1f}% based on actual historical pre-run)",
         f"Stop:    ${a_stop}  (1.5× ATR below entry)",
         f"R:R:     {a_rr}:1  |  Risk per share: ${a_risk}",
         "",
-        "What you're doing:",
-        f"Stocks with strong beat history often drift up 3-8%",
-        f"in the days before earnings as funds position early.",
-        f"You capture that move with ZERO binary risk.",
+    ] + a_viability_note + [
         "",
         "EXIT RULES (Strategy A):",
         f"✅  Target ${a_target} hit → sell immediately, take profit.",

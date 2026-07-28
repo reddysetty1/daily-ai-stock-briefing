@@ -45,6 +45,7 @@ DAYS_AHEAD        = 5       # scan earnings within next 5 trading days
 MIN_AVG_VOLUME    = 500_000 # liquidity filter
 MIN_MARKET_CAP    = 2_000_000_000   # $2B — earnings plays need size
 MAX_WORKERS       = 20      # parallel yfinance calls
+TOP_N_PLAYS       = 5       # max detailed reports to send — best 5 by score
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 with open(CONFIG_PATH) as f:
@@ -1015,7 +1016,8 @@ def main():
     # Sort by score descending, then days_away ascending (sooner first)
     plays.sort(key=lambda x: (-x["score"], x["days_away"]))
 
-    log.info("Scan complete. %d plays found out of %d tickers.", len(plays), total)
+    total_plays = len(plays)
+    log.info("Scan complete. %d plays found out of %d tickers.", total_plays, total)
 
     if not plays:
         msg = (
@@ -1031,12 +1033,27 @@ def main():
 
     risk_cfg = CONFIG["risk"]
 
-    # Send summary first
-    if TG_TOKEN and TG_CHAT_ID:
-        send_messages(TG_TOKEN, TG_CHAT_ID, _format_summary(plays, today))
+    # Cap to top N — best score wins, ties broken by sooner earnings date
+    top_plays    = plays[:TOP_N_PLAYS]
+    skipped      = total_plays - len(top_plays)
+    skipped_note = (
+        f"\n({total_plays} total qualifying plays found — showing top {TOP_N_PLAYS} by score. "
+        f"{skipped} lower-scored plays not shown.)"
+        if skipped > 0 else ""
+    )
 
-    # Send detailed message for each play
-    for play in plays:
+    log.info("Sending top %d of %d qualifying plays.", len(top_plays), total_plays)
+
+    # Send summary first (shows all found, notes the cap)
+    summary = _format_summary(top_plays, today)
+    if skipped > 0:
+        summary += skipped_note
+    if TG_TOKEN and TG_CHAT_ID:
+        send_messages(TG_TOKEN, TG_CHAT_ID, summary)
+    print(summary)
+
+    # Send detailed message for top plays only
+    for play in top_plays:
         log.info("Generating detailed message for %s…", play["ticker"])
         narrative = _gemini_narrative(play)
         msg = _format_play_message(play, risk_cfg, narrative)

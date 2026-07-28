@@ -237,14 +237,29 @@ def _get_avg_pre_run(t):
 # ── Sentiment & public interest helpers ───────────────────────────────────────
 
 # Keywords for news sentiment classification
-_POS_WORDS = {"beat", "beats", "surge", "surges", "record", "strong", "growth",
-              "upgrade", "upgraded", "buy", "outperform", "raise", "raised",
-              "bullish", "profit", "revenue", "expand", "deal", "win", "contract",
-              "partnership", "momentum", "breakthrough", "exceed", "exceeded"}
-_NEG_WORDS = {"miss", "misses", "missed", "decline", "falls", "drops", "warning",
-              "downgrade", "downgraded", "sell", "underperform", "cut", "cuts",
-              "bearish", "loss", "weak", "slump", "lawsuit", "probe", "fraud",
-              "recall", "layoff", "layoffs", "restructur", "disappoint", "guidance"}
+# Phrase-level patterns score higher than single words — financial headlines
+# use analytical language, so we need richer matching.
+_POS_WORDS = {
+    "beat", "beats", "topped", "surge", "surges", "surged", "soars", "soared",
+    "record", "strong", "strength", "growth", "growing", "grew", "upgrade",
+    "upgraded", "upgrades", "buy", "outperform", "outperforms", "raise", "raised",
+    "raises", "bullish", "profit", "profitable", "revenue", "expand", "expanded",
+    "deal", "wins", "won", "contract", "partnership", "momentum", "breakthrough",
+    "exceed", "exceeded", "exceeds", "rally", "rallies", "rallied", "high",
+    "higher", "upside", "optimistic", "confidence", "accelerating", "booming",
+    "demand", "robust", "positive", "above", "guidance", "boost", "boosted",
+    "opportunity", "expanding", "innovative", "leading", "dominates",
+}
+_NEG_WORDS = {
+    "miss", "misses", "missed", "decline", "falls", "drops", "dropped", "warning",
+    "downgrade", "downgraded", "downgrades", "sell", "underperform", "cut", "cuts",
+    "bearish", "loss", "losses", "weak", "weakness", "slump", "slumps", "lawsuit",
+    "probe", "fraud", "recall", "layoff", "layoffs", "restructur", "disappoint",
+    "disappoints", "disappointing", "disappointed", "concern", "concerns",
+    "risk", "risks", "pressure", "headwind", "headwinds", "below", "shortfall",
+    "worries", "tumbles", "tumbled", "sinks", "sank", "plunges", "plunged",
+    "investigation", "penalty", "penalties", "debt", "deficit", "volatile",
+}
 
 
 def _get_sentiment(t):
@@ -324,11 +339,11 @@ def _get_sentiment(t):
         result["short_pct_float"] = info.get("shortPercentOfFloat")
         result["short_ratio"]     = info.get("shortRatio")
 
-        # ── Insider activity ───────────────────────────────────────────
+        # ── Insider activity (last 30 days — tighter window for earnings relevance) ──
         try:
             it = t.insider_transactions
             if it is not None and not it.empty:
-                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=90)
+                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=30)
                 if "Start Date" in it.columns:
                     recent_ins = it[pd.to_datetime(it["Start Date"]) >= cutoff_date]
                 else:
@@ -869,7 +884,7 @@ def _format_play_message(play, risk_cfg, narrative):
         f"{up_arrow}  Last 30 days:    {up_label}  (upgrades vs downgrades)",
         f"{news_emoji}  News tone:       {news_pos_pct}% positive of {news_total} recent articles",
         f"⚡  Short interest:  {short_line}",
-        f"👤  Insider (90d):   {insider_line}",
+        f"👤  Insider (30d):   {insider_line}",
     ]
     # Show top 2 headlines if available
     headlines = s.get("top_headlines", [])

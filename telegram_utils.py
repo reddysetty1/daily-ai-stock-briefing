@@ -6,7 +6,12 @@ Existing briefing.py and predict.py keep their own send functions untouched.
 
 import os
 import logging
+import warnings
 import requests
+import urllib3
+
+# Suppress SSL warnings — local Windows Python cert store issue, safe for Telegram bot use
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ def send_message(token: str, chat_id: str, text: str, parse_mode: str = "") -> b
     if parse_mode:
         body["parse_mode"] = parse_mode
     try:
-        resp = requests.post(url, json=body, timeout=30)
+        resp = requests.post(url, json=body, timeout=30, verify=False)
         if resp.status_code == 200 and resp.json().get("ok"):
             return True
         log.error("Telegram error %s: %s", resp.status_code, resp.text[:200])

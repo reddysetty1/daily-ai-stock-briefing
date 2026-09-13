@@ -7,6 +7,19 @@ No server. No cost. Wake up, open your dashboard, and get institutional-grade tr
 
 ---
 
+## 📲 Just want the alerts? Join the Telegram Channel
+
+**[👉 Join AI Stock Market Analysis on Telegram](https://t.me/AIStockMarketAnalysis)**
+
+Get every morning scan, earnings play alert, and AI watchlist ping delivered directly to your phone — no code, no setup required.
+
+> ⚠️ **Disclaimer:** All messages in this channel are AI-generated and for informational purposes only.
+> This project is still in active development and analysis. **Please do your own research before making
+> any investment decisions.** These alerts are designed to narrow the broad stock market and make your
+> personal analysis easier — not to replace it. Never blindly trust AI-generated financial content.
+
+---
+
 ## What it does
 
 | Feature | How | When |

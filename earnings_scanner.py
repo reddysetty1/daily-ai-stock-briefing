@@ -722,11 +722,12 @@ def _format_play_message(play, risk_cfg, narrative):
     earnings_dt = p["earnings_date"]
 
     # ── Strategy A: Pre-earnings run (sell before announcement) ───────
-    # Use actual historical avg pre-run — no artificial floor.
-    # If avg_pre_run < 2%, Strategy A is NOT recommended for this stock.
-    avg_pre_run     = p["avg_pre_run"]
+    # avg_pre_run = 0.0 can mean "no yfinance data" OR "truly flat".
+    # Only recommend Strategy A when we have real data showing >= 2% drift.
+    avg_pre_run       = p["avg_pre_run"]
+    pre_run_no_data   = (avg_pre_run == 0.0)  # 0.0 is our sentinel for missing data
     strategy_a_viable = avg_pre_run >= 2.0
-    pre_target_pct  = min(avg_pre_run * 0.85, 8.0) if strategy_a_viable else avg_pre_run
+    pre_target_pct    = min(avg_pre_run * 0.85, 8.0) if strategy_a_viable else avg_pre_run
     a_entry  = price
     a_target = round(price * (1 + pre_target_pct / 100), 2)
     a_stop   = round(price - atr * 1.5, 2)
@@ -785,10 +786,16 @@ def _format_play_message(play, risk_cfg, narrative):
     # ── Warning block ──────────────────────────────────────────────────
     warnings = []
     if not strategy_a_viable:
-        warnings.append(
-            f"Strategy A NOT recommended — this stock only drifts {avg_pre_run:+.1f}% "
-            f"historically before earnings. Not worth the trade. Use Strategy B instead."
-        )
+        if pre_run_no_data:
+            warnings.append(
+                "Strategy A NOT recommended — insufficient earnings history data to calculate "
+                "historical pre-run. Cannot assess the opportunity. Use Strategy B instead."
+            )
+        else:
+            warnings.append(
+                f"Strategy A NOT recommended — this stock only drifts {avg_pre_run:+.1f}% "
+                f"historically before earnings. Not worth the trade. Use Strategy B instead."
+            )
     if p["beat_rate"] < 0.65:
         warnings.append(f"Modest beat rate ({beat_pct}%) — be selective on Strategy B size")
     if p["pre_momentum"] > 10:
@@ -820,8 +827,10 @@ def _format_play_message(play, risk_cfg, narrative):
 
     if p["expected_move"]:
         lines.append(f"⚙️  Options imply: ±{p['expected_move']:.1f}% move around earnings")
-    if p["avg_pre_run"] != 0:
+    if p["avg_pre_run"] != 0.0:
         lines.append(f"📉  Avg pre-run (5 days before): {p['avg_pre_run']:+.1f}%")
+    else:
+        lines.append("📉  Avg pre-run (5 days before): no data")
 
     lines += [
         "",
@@ -906,19 +915,25 @@ def _format_play_message(play, risk_cfg, narrative):
         if not strategy_a_viable else
         "STRATEGY A — Pre-Earnings Run  (LOWER RISK)"
     )
-    a_viability_note = (
-        [
-            f"⛔ This stock historically only moves {avg_pre_run:+.1f}% before earnings.",
-            f"   Strategy A is not worth the commission/spread on a {avg_pre_run:.1f}% target.",
-            f"   Skip Strategy A — focus on Strategy B below.",
-        ]
-        if not strategy_a_viable else
-        [
+    if not strategy_a_viable:
+        if pre_run_no_data:
+            a_viability_note = [
+                "⛔ Not enough earnings history in yfinance to calculate historical pre-run.",
+                "   Cannot determine if this stock typically drifts before announcements.",
+                "   Skip Strategy A — focus on Strategy B below.",
+            ]
+        else:
+            a_viability_note = [
+                f"⛔ This stock historically only moves {avg_pre_run:+.1f}% before earnings.",
+                f"   Strategy A is not worth the commission/spread on a {avg_pre_run:.1f}% target.",
+                f"   Skip Strategy A — focus on Strategy B below.",
+            ]
+    else:
+        a_viability_note = [
             f"Stocks with strong pre-run history drift up before earnings as funds position early.",
             f"This stock avg {avg_pre_run:+.1f}% in the 5 days before past announcements.",
             f"You capture that move with ZERO binary risk.",
         ]
-    )
 
     lines += [
         "",
@@ -926,7 +941,7 @@ def _format_play_message(play, risk_cfg, narrative):
         a_header,
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"Entry:   Buy at market open (~${price})",
-        f"Target:  ${a_target}  ({pre_target_pct:+.1f}% based on actual historical pre-run)",
+        f"Target:  ${a_target}  ({'no pre-run data — N/A' if pre_run_no_data else f'{pre_target_pct:+.1f}% based on historical pre-run'})",
         f"Stop:    ${a_stop}  (1.5× ATR below entry)",
         f"R:R:     {a_rr}:1  |  Risk per share: ${a_risk}",
         "",
